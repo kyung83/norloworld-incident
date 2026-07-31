@@ -20,7 +20,10 @@ jobs:
           node-version: 18
 
       - name: Install dependencies
-        run: npm ci
+        # Uses `npm install` (not `npm ci`) because no package-lock.json is
+        # committed yet. After you run `npm install` locally and commit the
+        # generated package-lock.json, this can be switched back to `npm ci`.
+        run: npm install
 
       - name: Build project
         run: npm run build --if-present
