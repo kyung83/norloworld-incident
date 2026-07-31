@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg: #ffffff;
+  --color-text: #111827;
+  --color-input-bg: #ffffff;
+  --color-border: #d1d5db;
+  --color-surface: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #111827;
+    --color-text: #f9fafb;
+    --color-input-bg: #1f2937;
+    --color-border: #4b5563;
+    --color-surface: #1f2937;
+  }
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+}
