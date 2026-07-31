@@ -5,6 +5,10 @@ on:
     branches:
       - main
 
+# Allow the workflow's GITHUB_TOKEN to push the gh-pages branch.
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build
