@@ -5,12 +5,12 @@ appends one row per incident to a flat **Submissions** tab.
 
 ## Deploy
 
-1. Open the target Google Sheet (reuse the "2026 Incident Report" file or make
-   a new one). **Extensions → Apps Script**.
+1. Create a **new, dedicated** Google Sheet for submissions (keep it separate
+   from the "2026 Incident Report" file). Then **Extensions → Apps Script**.
 2. Replace the default `Code.gs` with the contents of this folder's `Code.gs`.
-3. Set `SPREADSHEET_ID` at the top:
-   - Existing report sheet: `1AzpuRYag_ixLhY_BRCz6vZkLbGcu2sqSnf0Ea8oYD1k`
-   - Or a new sheet's ID (the long string in its URL).
+3. Set `SPREADSHEET_ID` at the top to the new sheet's ID — the long string in
+   its URL between `/d/` and `/edit`. (To surface the data inside the 2026
+   report file, use `IMPORTRANGE` there rather than pointing the script at it.)
 4. **Deploy → New deployment → Web app**
    - Execute as: **Me**
    - Who has access: **Anyone**

@@ -12,8 +12,9 @@
  *   POST <exec-url>?route=createIncident
  *
  * SETUP
- *  1. Set SPREADSHEET_ID below. You can reuse the "2026 Incident Report"
- *     spreadsheet (a new tab is created) or a brand-new spreadsheet.
+ *  1. Create a NEW, dedicated Google Sheet for incident submissions (keep it
+ *     separate from the formatted "2026 Incident Report" file). Copy its ID
+ *     from the URL into SPREADSHEET_ID below.
  *  2. Deploy → New deployment → Web app.
  *       - Execute as: Me
  *       - Who has access: Anyone
@@ -22,10 +23,11 @@
 
 // ---- Configuration ---------------------------------------------------------
 
-// The spreadsheet to write to. For the existing report sheet this is:
-//   1AzpuRYag_ixLhY_BRCz6vZkLbGcu2sqSnf0Ea8oYD1k
-// Prefer a dedicated spreadsheet if you don't want submissions in that file.
-var SPREADSHEET_ID = 'PUT_YOUR_SPREADSHEET_ID_HERE';
+// The dedicated submissions spreadsheet to write to. Create a new Google Sheet
+// and paste its ID here (the long string in its URL between /d/ and /edit).
+// Keep this separate from the formatted "2026 Incident Report" file; if you
+// want the data visible there too, pull it in with IMPORTRANGE.
+var SPREADSHEET_ID = 'PUT_YOUR_NEW_SUBMISSIONS_SHEET_ID_HERE';
 
 // Tab that receives one row per submission. Created automatically if missing.
 var SHEET_NAME = 'Submissions';
