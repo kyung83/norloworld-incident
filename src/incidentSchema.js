@@ -3,6 +3,11 @@
 // The form branches like an org chart: the user picks one or more Incident
 // Types, and each section is shown only when one of its `types` is selected.
 // Sections with `types: null` are always shown (core information).
+//
+// `gates` are the always-asked questions that drive severity tiering — asked of
+// every driver on every submission, before the incident-type checkboxes.
+// Office-only fields live in OFFICE_SECTIONS (below), which the driver form
+// does not render.
 
 export const INCIDENT_TYPES = [
   { key: "accident", label: "Accident (Moving vehicles)" },
@@ -23,8 +28,9 @@ export const CHECKLISTS = {
 
 const YESNO = ["Yes", "No", "N/A"];
 const YNU = ["Yes", "No", "Unknown"];
+const YN = ["Yes", "No"];
 
-// Each section: { id, title, types, fields: [{ key, label, type, options?, required?, placeholder? }] }
+// Each section: { id, title, subtitle?, types, fields: [{ key, label, type, options?, required?, placeholder? }] }
 // field.type: 'text' | 'textarea' | 'date' | 'time' | 'select'
 export const SECTIONS = [
   {
@@ -40,14 +46,38 @@ export const SECTIONS = [
     ],
   },
   {
+    id: "gates",
+    title: "First — a few quick questions",
+    subtitle: "If anyone is hurt, stop and call the driver line, option 6.",
+    types: null, // ALWAYS shown — these drive severity tiering.
+    fields: [
+      // people
+      { key: "anyoneInjured", label: "Is anyone hurt — you, another driver, or a bystander?", type: "select", options: YNU, required: true },
+      { key: "medicalAwayFromScene", label: "Did anyone leave the scene for medical treatment?", type: "select", options: YNU, required: true },
+      { key: "pedestrianInvolved", label: "Was a pedestrian or cyclist involved?", type: "select", options: YNU, required: true },
+      // other parties
+      { key: "otherVehicleInvolved", label: "Was another vehicle involved?", type: "select", options: YNU, required: true },
+      { key: "otherPartyInvolved", label: "Is there another person or company involved in any way?", type: "select", options: YNU, required: true },
+      // authorities
+      { key: "policeOnScene", label: "Are police on scene, or was a report taken?", type: "select", options: YNU, required: true },
+      { key: "citationIssued", label: "Was anyone issued a ticket or citation?", type: "select", options: YNU, required: true },
+      // the equipment
+      { key: "rollover", label: "Did the truck roll over or jackknife?", type: "select", options: YNU, required: true },
+      { key: "hazmatOrFuelSpill", label: "Is fuel, oil, or any other fluid leaking?", type: "select", options: YNU, required: true },
+      { key: "truckDrivable", label: "Is the truck safe to drive right now?", type: "select", options: YNU, required: true },
+      { key: "towRequired", label: "Does anything need to be towed?", type: "select", options: YNU, required: true },
+      { key: "vehicleStuck", label: "Are you stuck?", type: "select", options: YNU, required: true },
+      // the override
+      { key: "driverRequestsContact", label: "Do you need someone to call you right now?", type: "select", options: YN, required: true },
+    ],
+  },
+  {
     id: "intake",
     title: "Intake",
     types: null,
     fields: [
-      { key: "intakeMember", label: "Incident intake team member / Phone Number", type: "text" },
       { key: "location", label: "Incident Location (Company or location name / Address)", type: "text" },
       { key: "driverContact", label: "Driver Name and Phone Number", type: "text" },
-      { key: "reportedCorrectly", label: "Was this incident reported correctly (Driver line – option 6)?", type: "select", options: YESNO },
     ],
   },
   {
@@ -55,10 +85,8 @@ export const SECTIONS = [
     title: "Injury",
     types: ["injury"],
     fields: [
-      { key: "driverOk", label: "Is driver OK?", type: "select", options: YESNO },
       { key: "injuryType", label: "If injured, type of injury", type: "text" },
       { key: "medicalAttention", label: "Medical attention needed? Type?", type: "text" },
-      { key: "otherPartiesInjured", label: "Other parties injured?", type: "select", options: YESNO },
       { key: "drugTest", label: "Drug test required?", type: "select", options: YESNO },
     ],
   },
@@ -69,8 +97,7 @@ export const SECTIONS = [
     fields: [
       { key: "deerAnimal", label: "Deer / Animal accident?", type: "select", options: YESNO },
       { key: "otherPartiesInvolved", label: "Other parties involved? If yes, names and contact info", type: "textarea" },
-      { key: "ticket", label: "Ticket? Who received the ticket?", type: "text" },
-      { key: "fuelOilSpill", label: "Fuel / Oil spill?", type: "select", options: YESNO },
+      { key: "ticket", label: "Who received the ticket?", type: "text" },
     ],
   },
   {
@@ -87,7 +114,6 @@ export const SECTIONS = [
     title: "Tow",
     types: ["tow"],
     fields: [
-      { key: "towConfirm", label: "Tow required?", type: "select", options: YESNO },
       { key: "towCompany", label: "Tow company / details", type: "text" },
     ],
   },
@@ -100,9 +126,6 @@ export const SECTIONS = [
       { key: "involvedPics", label: "Vehicles / Equipment / Property involved (all) collected?", type: "select", options: YESNO },
       { key: "scenePic", label: "Accident scene (wide picture) collected?", type: "select", options: YESNO },
       { key: "reportCardNumber", label: "Accident Report Card / Number", type: "text" },
-      { key: "videoPulled", label: "Has video been pulled?", type: "select", options: YESNO },
-      { key: "videoProves", label: "Does video PROVE the other party is at fault?", type: "select", options: YNU },
-      { key: "videoSent", label: "Was video sent to driver / officer?", type: "select", options: YESNO },
     ],
   },
   {
@@ -119,7 +142,6 @@ export const SECTIONS = [
     types: null,
     fields: [
       { key: "description", label: "Brief description of what happened", type: "textarea", required: true },
-      { key: "advisedNoContact", label: "Advised driver not to contact other people?", type: "select", options: YESNO },
     ],
   },
   {
@@ -143,12 +165,43 @@ export const SECTIONS = [
       { key: "freightAffected", label: "Freight affected?", type: "select", options: YESNO },
       { key: "dispatchNotified", label: "Has dispatch been notified?", type: "select", options: YESNO },
       { key: "breakdownsNotified", label: "Has breakdowns been notified?", type: "select", options: YESNO },
-      { key: "coachingDb", label: "Submitted to Norlo Coaching Database?", type: "select", options: YESNO },
       { key: "notes", label: "Notes", type: "textarea" },
     ],
   },
 ];
 
-// Every field key in the schema, in order — handy for building the payload
-// and for the backend to map to sheet columns.
+// Office-only sections — Riley and Mark's post-intake work. NOT shown to
+// drivers: IncidentForm renders SECTIONS only. The office dashboard renders
+// OFFICE_SECTIONS.
+export const OFFICE_SECTIONS = [
+  {
+    id: "officeIntake",
+    title: "Office — Intake Review",
+    types: null,
+    fields: [
+      { key: "intakeMember", label: "Incident intake team member / Phone Number", type: "text" },
+      { key: "reportedCorrectly", label: "Was this incident reported correctly (Driver line – option 6)?", type: "select", options: YESNO },
+      { key: "advisedNoContact", label: "Advised driver not to contact other people?", type: "select", options: YESNO },
+      { key: "coachingDb", label: "Submitted to Norlo Coaching Database?", type: "select", options: YESNO },
+    ],
+  },
+  {
+    id: "officeVideo",
+    title: "Office — Video Follow-up",
+    types: null,
+    fields: [
+      { key: "videoPulled", label: "Has video been pulled?", type: "select", options: YESNO },
+      { key: "videoProves", label: "Does video PROVE the other party is at fault?", type: "select", options: YNU },
+      { key: "videoSent", label: "Was video sent to driver / officer?", type: "select", options: YESNO },
+    ],
+  },
+];
+
+// Every driver field key in the schema, in order — handy for building the
+// payload and mapping to sheet columns.
 export const ALL_FIELD_KEYS = SECTIONS.flatMap((s) => s.fields.map((f) => f.key));
+
+// Office-only field keys, for the dashboard / backend column mapping.
+export const OFFICE_FIELD_KEYS = OFFICE_SECTIONS.flatMap((s) =>
+  s.fields.map((f) => f.key)
+);

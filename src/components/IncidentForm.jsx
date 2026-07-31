@@ -25,6 +25,17 @@ export default function IncidentForm() {
     isSectionVisible(s, selectedTypes)
   );
 
+  // The gate questions (and identity) are asked BEFORE the incident-type
+  // checkboxes — a driver answers them while still looking at the scene. Split
+  // the visible sections around `gates` so the type selector sits between them.
+  const gatesIndex = SECTIONS.findIndex((s) => s.id === "gates");
+  const preSections = visibleSections.filter(
+    (s) => SECTIONS.indexOf(s) <= gatesIndex
+  );
+  const postSections = visibleSections.filter(
+    (s) => SECTIONS.indexOf(s) > gatesIndex
+  );
+
   const handleValueChange = (key, val) => {
     setValues((prev) => ({ ...prev, [key]: val }));
     setInvalidFields((prev) => {
@@ -114,6 +125,33 @@ export default function IncidentForm() {
     }
   }
 
+  const renderSection = (section) => (
+    <fieldset
+      key={section.id}
+      className="rounded-lg border border-gray-200 dark:border-gray-700 p-4"
+    >
+      <legend className="px-1 text-base font-semibold text-gray-900 dark:text-gray-100">
+        {section.title}
+      </legend>
+      {section.subtitle && (
+        <p className="mb-3 text-sm font-medium text-amber-700 dark:text-amber-400">
+          {section.subtitle}
+        </p>
+      )}
+      <div className="space-y-4">
+        {section.fields.map((field) => (
+          <Field
+            key={field.key}
+            field={field}
+            value={values[field.key]}
+            onChange={handleValueChange}
+            invalid={!!invalidFields[field.key]}
+          />
+        ))}
+      </div>
+    </fieldset>
+  );
+
   return (
     <form onSubmit={handleSubmit} className="space-y-8 pb-12">
       {successMessage && (
@@ -148,6 +186,8 @@ export default function IncidentForm() {
         </div>
       )}
 
+      {preSections.map(renderSection)}
+
       {/* Incident Type drives the branching below */}
       <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4">
         <IncidentTypeSelect
@@ -157,27 +197,7 @@ export default function IncidentForm() {
         />
       </div>
 
-      {visibleSections.map((section) => (
-        <fieldset
-          key={section.id}
-          className="rounded-lg border border-gray-200 dark:border-gray-700 p-4"
-        >
-          <legend className="px-1 text-base font-semibold text-gray-900 dark:text-gray-100">
-            {section.title}
-          </legend>
-          <div className="space-y-4">
-            {section.fields.map((field) => (
-              <Field
-                key={field.key}
-                field={field}
-                value={values[field.key]}
-                onChange={handleValueChange}
-                invalid={!!invalidFields[field.key]}
-              />
-            ))}
-          </div>
-        </fieldset>
-      ))}
+      {postSections.map(renderSection)}
 
       {warning && (
         <p className="text-sm text-red-600" id="form-error">
