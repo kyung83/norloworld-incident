@@ -181,7 +181,7 @@ export default function IncidentFormWizard() {
     if (first) out.push({ kind: "gate", field: first });
 
     if (identitySection) {
-      out.push({ kind: "group", title: "Who and what", fields: identitySection.fields });
+      out.push({ kind: "group", title: identitySection.title, fields: identitySection.fields });
     }
 
     gateFields
@@ -272,7 +272,7 @@ export default function IncidentFormWizard() {
   // --- confirmation ---------------------------------------------------------
   if (status === "done") {
     return (
-      <div className="mx-auto max-w-md p-6 text-center">
+      <div className="mx-auto min-h-screen max-w-md bg-white p-6 text-center text-gray-900">
         <h1 className="text-xl font-medium">Report submitted</h1>
         <p className="mt-2 text-sm text-gray-600">
           Reference {values._incidentId}
@@ -294,7 +294,7 @@ export default function IncidentFormWizard() {
   }
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-md flex-col p-4">
+    <div className="mx-auto flex min-h-screen max-w-md flex-col bg-white p-4 text-gray-900">
       <div className="mb-1 text-xs text-gray-500">
         Step {step + 1} of {steps.length}
       </div>
@@ -471,7 +471,8 @@ function GroupScreen({ title, subtitle, fields, values, set, sectionId, selected
 }
 
 function Field({ field, values, set }) {
-  const base = "w-full rounded border border-gray-300 px-3 py-3 text-base";
+  const base =
+    "w-full rounded border border-gray-300 bg-white px-3 py-3 text-base text-gray-900 placeholder-gray-500";
   const value = values[field.key];
   const required = isRequired(field, values);
 

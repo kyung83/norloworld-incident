@@ -47,7 +47,7 @@ const US_STATES = [
 export const SECTIONS = [
   {
     id: "identity",
-    title: "Incident Identity",
+    title: "Driver and Vehicle Information",
     types: null,
     fields: [
       { key: "driverName", label: "Last Name, First Name", type: "text", required: true },
@@ -59,7 +59,7 @@ export const SECTIONS = [
   },
   {
     id: "gates",
-    title: "First — a few quick questions",
+    title: "Initial Assessment",
     subtitle: "If anyone is hurt, stop and call the driver line, option 6.",
     types: null, // ALWAYS shown — these drive severity tiering.
     fields: [
