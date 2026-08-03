@@ -1,30 +1,10 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { SECTIONS, INCIDENT_TYPES, CHECKLISTS } from "../incidentSchema";
 import { ENDPOINT } from "../config";
 
 // =============================================================================
-// IncidentFormWizard.jsx
-// =============================================================================
-//
-// Drop-in replacement for IncidentForm.jsx. Same schema, same field keys, same
-// payload — only the rendering changes. Nothing in apps-script/ needs to know.
-//
-// WHY A WIZARD
-//   A <select> is two taps plus a scroll. A pair of buttons is one tap. Across
-//   thirteen gates that's the difference between a minute of fiddling and about
-//   twenty seconds, with no keyboard and no scrolling.
-//
-// SCREEN ORDER — deliberate
-//   1. "Is anyone hurt?"        the only question that can't wait
-//   2. Name / truck / trailer   so an abandoned form still identifies who
-//   3. Remaining gates          one per screen
-//   4. Incident types           the org-chart fork
-//   5. Branch sections          only the ones their types revealed
-//   6. Review + submit
-//
-// A driver who quits after screen 2 still leaves a usable record. That is the
-// whole reason identity sits second instead of first or last.
-//
+// IncidentFormWizard.jsx — one question per screen, plus a checklist screen of
+// Yes/No/N-A rows with reveal-on-answer and per-photo upload+retry.
 // =============================================================================
 
 const DRAFT_KEY = "norlo-incident-draft-v1";
@@ -37,11 +17,6 @@ const US_STATES = [
   "VA","WA","WV","WI","WY","DC","ON","QC",
 ];
 
-// Every photo field in the schema uploads to Drive — derive the list so new
-// photo fields are picked up automatically.
-const PHOTO_KEYS = SECTIONS.flatMap((s) =>
-  s.fields.filter((f) => f.type === "photo").map((f) => f.key)
-);
 const SLOT_LABEL = {
   photoScene: "scene",
   photoOurEquipment: "our-truck",
@@ -55,36 +30,128 @@ const SLOT_LABEL = {
   photoLoadDamage: "load-damage",
 };
 
-// A section shows when its type matches AND its showIf gate (if any) holds.
+const CHECKLIST_SECTION = SECTIONS.find((s) => s.id === "checklist");
+const ALL_PHOTO_KEYS = CHECKLIST_SECTION
+  ? CHECKLIST_SECTION.rows.flatMap((r) =>
+      (r.fields || []).filter((f) => f.type === "photo").map((f) => f.key)
+    )
+  : [];
+
+const INPUT =
+  "w-full rounded border border-gray-300 bg-white px-3 py-3 text-base text-gray-900 placeholder-gray-500";
+
+// --- pure helpers -----------------------------------------------------------
+
+function keysFromTypes(types) {
+  return types
+    .map((label) => INCIDENT_TYPES.find((t) => t.label === label)?.key)
+    .filter(Boolean);
+}
+
 function sectionVisible(s, values, selectedKeys) {
   const typeOk = s.types === null || s.types.some((t) => selectedKeys.includes(t));
   const ifOk = !s.showIf || values[s.showIf.key] === s.showIf.equals;
   return typeOk && ifOk;
 }
 
-// Requiredness is computed: statically required, or required only when a gate
-// answer makes it apply ("common sense" written down).
 function isRequired(f, values) {
   if (f.required) return true;
   if (f.requiredIf) return values[f.requiredIf.key] === f.requiredIf.equals;
   return false;
 }
 
-// A required field is satisfied by its own value OR, if it offers a skip
-// reason, by that reason being filled. This is the soft gate.
-function fieldSatisfied(f, values) {
+// A field is satisfied when: not required, OR a photo whose upload is done, OR
+// a non-photo with a non-empty value.
+function fieldOk(f, values, photoStatus) {
   if (!isRequired(f, values)) return true;
-  if (values[f.key]) return true;
-  if (f.skipReasonKey) {
-    const r = values[f.skipReasonKey];
-    if (r && String(r).trim()) return true;
-  }
-  return false;
+  if (f.type === "photo") return photoStatus[f.key] === "done";
+  return !!(values[f.key] && String(values[f.key]).trim());
 }
 
-// Downscale a captured photo so uploads are fast and small (~200–400 KB from a
-// phone camera). Returns a JPEG data URL; falls back to the original on any
-// canvas/Image error — a big photo beats no photo.
+function rowVisible(row, values, selectedKeys) {
+  if (row.showIf && values[row.showIf.key] !== row.showIf.equals) return false;
+  if (row.showIfTypes && !row.showIfTypes.some((t) => selectedKeys.includes(t))) return false;
+  return true;
+}
+
+// Effective answer for a row: a locked row reads its gate; an asked row reads
+// its own key.
+function rowAnswer(row, values) {
+  return row.answeredBy ? values[row.answeredBy] : values[row.key];
+}
+
+// N/A path complete: a reason chosen, follow-up fields filled if the reason
+// triggers them, and a real note (>= 15 chars) for any "Other" reason.
+function naComplete(row, values) {
+  const reason = values[row.key + "_naReason"];
+  if (!reason) return false;
+  if (row.naFollowUp && reason === row.naFollowUp.when) {
+    if (!row.naFollowUp.fields.every((f) => values[f.key] && String(values[f.key]).trim()))
+      return false;
+  }
+  if (/^Other/i.test(reason)) {
+    if (String(values[row.key + "_naNote"] || "").trim().length < 15) return false;
+  }
+  return true;
+}
+
+function fieldsOk(row, values, photoStatus) {
+  return (row.fields || []).every((f) => fieldOk(f, values, photoStatus));
+}
+
+function rowComplete(row, values, photoStatus) {
+  if (row.type === "alwaysRequired") return fieldsOk(row, values, photoStatus);
+
+  const reveal = row.revealOn || "Yes";
+  const ans = rowAnswer(row, values);
+
+  if (row.answeredBy) {
+    // Locked to a gate. Nothing to do unless the gate revealed the row.
+    if (ans !== reveal) return true;
+    if (fieldsOk(row, values, photoStatus)) return true;
+    if (row.naReasons && naComplete(row, values)) return true; // couldn't-provide escape
+    return false;
+  }
+
+  if (ans === "No") return true;
+  if (ans === "N/A") return naComplete(row, values);
+  if (ans === reveal) return fieldsOk(row, values, photoStatus);
+  return false; // unanswered
+}
+
+function checklistComplete(section, values, photoStatus, selectedKeys) {
+  return section.rows
+    .filter((r) => rowVisible(r, values, selectedKeys))
+    .every((r) => rowComplete(r, values, photoStatus));
+}
+
+// Build the two sheet summaries + the count of vague "Other" N/A reasons.
+function checklistSummary(section, values, selectedKeys) {
+  const na = [];
+  const no = [];
+  let otherNaCount = 0;
+  section.rows
+    .filter((r) => rowVisible(r, values, selectedKeys))
+    .forEach((r) => {
+      if (r.type === "alwaysRequired") return;
+      const reveal = r.revealOn || "Yes";
+      const ans = rowAnswer(r, values);
+      const reason = values[r.key + "_naReason"];
+      if (ans === "No") {
+        no.push(r.label);
+      } else if (ans === "N/A" && reason) {
+        const note = values[r.key + "_naNote"];
+        na.push(r.label + " — " + reason + (note ? " (" + note + ")" : ""));
+        if (/^Other/i.test(reason)) otherNaCount++;
+      } else if (r.answeredBy && ans === reveal && r.naReasons && reason) {
+        // locked + revealed, satisfied via the couldn't-provide escape
+        na.push(r.label + " — " + reason);
+        if (/^Other/i.test(reason)) otherNaCount++;
+      }
+    });
+  return { notApplicable: na.join("\n"), answeredNo: no.join("\n"), otherNaCount };
+}
+
 async function downscaleImage(file, maxEdge = 1600, quality = 0.7) {
   const readAsDataUrl = (f) =>
     new Promise((res, rej) => {
@@ -114,8 +181,6 @@ async function downscaleImage(file, maxEdge = 1600, quality = 0.7) {
   }
 }
 
-// Upload one downscaled photo; resolves to its Drive URL. text/plain keeps this
-// a CORS simple request, same as the incident submit.
 async function uploadPhoto(slot, dataUrl, ctx) {
   const res = await fetch(`${ENDPOINT}?route=savePhoto`, {
     method: "POST",
@@ -133,6 +198,8 @@ async function uploadPhoto(slot, dataUrl, ctx) {
   return data.url;
 }
 
+// =============================================================================
+
 export default function IncidentFormWizard() {
   const [values, setValues] = useState({});
   const [types, setTypes] = useState([]);
@@ -140,16 +207,28 @@ export default function IncidentFormWizard() {
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
   const [savedAt, setSavedAt] = useState(null);
+  const [photoStatus, setPhotoStatus] = useState({}); // key -> uploading|done|failed
+  const [photoData, setPhotoData] = useState({}); // key -> in-memory data URL (retry)
+
+  const valuesRef = useRef(values);
+  valuesRef.current = values;
+  const photoDataRef = useRef(photoData);
+  photoDataRef.current = photoData;
 
   // --- draft restore -------------------------------------------------------
-  // Tablets sleep, Eleos backgrounds the webview, drivers take calls. None of
-  // that should cost anything already typed.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
       if (!raw) return;
       const d = JSON.parse(raw);
-      if (d.values) setValues(d.values);
+      if (d.values) {
+        setValues(d.values);
+        const ps = {};
+        ALL_PHOTO_KEYS.forEach((k) => {
+          if (/^https?:/.test(String(d.values[k] || ""))) ps[k] = "done";
+        });
+        setPhotoStatus(ps);
+      }
       if (d.types) setTypes(d.types);
       if (typeof d.step === "number") setStep(d.step);
     } catch {
@@ -160,6 +239,8 @@ export default function IncidentFormWizard() {
   useEffect(() => {
     if (!Object.keys(values).length && !types.length) return;
     try {
+      // Photo image data is never persisted (keeps the draft small); their
+      // Drive URLs live in `values` and are restored above.
       localStorage.setItem(DRAFT_KEY, JSON.stringify({ values, types, step }));
       setSavedAt(Date.now());
     } catch {}
@@ -169,9 +250,47 @@ export default function IncidentFormWizard() {
     setValues((v) => ({ ...v, [key]: val }));
   }, []);
 
+  // --- photo upload state machine ------------------------------------------
+  const doUpload = useCallback(async (fieldKey, dataUrl) => {
+    setPhotoStatus((s) => ({ ...s, [fieldKey]: "uploading" }));
+    try {
+      const ctx = {
+        driverName: valuesRef.current.driverName,
+        dateOfIncident: valuesRef.current.dateOfIncident,
+      };
+      const url = await uploadPhoto(fieldKey, dataUrl, ctx);
+      setValues((v) => ({ ...v, [fieldKey]: url }));
+      setPhotoStatus((s) => ({ ...s, [fieldKey]: "done" }));
+    } catch {
+      setPhotoStatus((s) => ({ ...s, [fieldKey]: "failed" }));
+    }
+  }, []);
+
+  const capturePhoto = useCallback(
+    async (fieldKey, file) => {
+      const dataUrl = await downscaleImage(file);
+      setPhotoData((d) => ({ ...d, [fieldKey]: dataUrl }));
+      doUpload(fieldKey, dataUrl);
+    },
+    [doUpload]
+  );
+
+  const retryPhoto = useCallback(
+    (fieldKey) => {
+      const dataUrl = photoDataRef.current[fieldKey];
+      if (dataUrl) doUpload(fieldKey, dataUrl);
+    },
+    [doUpload]
+  );
+
+  const anyUploading = Object.values(photoStatus).some((s) => s === "uploading");
+  const uploadDone = Object.values(photoStatus).filter((s) => s === "done").length;
+  const uploadTracked = Object.keys(photoStatus).length;
+
   // --- build the screen list ------------------------------------------------
   const gatesSection = SECTIONS.find((s) => s.id === "gates");
   const identitySection = SECTIONS.find((s) => s.id === "identity");
+  const selectedKeys = useMemo(() => keysFromTypes(types), [types]);
 
   const steps = useMemo(() => {
     const out = [];
@@ -190,67 +309,64 @@ export default function IncidentFormWizard() {
 
     out.push({ kind: "types" });
 
-    // FIX (applied when wiring in — flag for the source chat): `types` holds
-    // incident-type LABELS (that is what gets submitted), but each section's
-    // `types` are KEYS. Comparing them directly meant no branch section ever
-    // matched. Translate labels -> keys before the visibility test.
-    const selectedKeys = types
-      .map((label) => INCIDENT_TYPES.find((t) => t.label === label)?.key)
-      .filter(Boolean);
-
     SECTIONS.forEach((s) => {
       if (s.id === "gates" || s.id === "identity") return;
       if (!sectionVisible(s, values, selectedKeys)) return;
-      out.push({ kind: "group", title: s.title, subtitle: s.subtitle, fields: s.fields, sectionId: s.id });
+      if (s.rows) {
+        out.push({ kind: "checklist", section: s, sectionId: s.id });
+      } else {
+        out.push({ kind: "group", title: s.title, subtitle: s.subtitle, fields: s.fields, sectionId: s.id });
+      }
     });
 
     out.push({ kind: "review" });
     return out;
-  }, [types, values, gatesSection, identitySection]);
+  }, [values, selectedKeys, gatesSection, identitySection]);
 
   const current = steps[Math.min(step, steps.length - 1)];
   const pct = Math.round(((step + 1) / steps.length) * 100);
 
+  const goToGate = useCallback(
+    (gateKey) => {
+      const idx = steps.findIndex((s) => s.kind === "gate" && s.field.key === gateKey);
+      if (idx >= 0) setStep(idx);
+    },
+    [steps]
+  );
+
   // --- validation -----------------------------------------------------------
-  // Blocks Next rather than failing at submit. A driver should never fill six
-  // more screens only to be told screen two was wrong.
   const blocked = useMemo(() => {
     if (!current) return false;
     if (current.kind === "gate") return !values[current.field.key];
     if (current.kind === "types") return types.length === 0;
     if (current.kind === "group") {
-      return current.fields.some((f) => !fieldSatisfied(f, values));
+      return current.fields.some((f) => !fieldOk(f, values, photoStatus));
+    }
+    if (current.kind === "checklist") {
+      return anyUploading || !checklistComplete(current.section, values, photoStatus, selectedKeys);
     }
     return false;
-  }, [current, values, types]);
+  }, [current, values, types, photoStatus, anyUploading, selectedKeys]);
 
   // --- submit ---------------------------------------------------------------
   async function submit() {
     setStatus("sending");
     setError("");
 
-    // Upload any captured photos to Drive first, swapping the image data for
-    // its URL. A photo that fails to upload never blocks the incident itself —
-    // getting the report in matters more than the picture.
-    const out = { ...values };
-    const photoFailures = [];
-    for (const key of PHOTO_KEYS) {
-      const dataUrl = out[key];
-      if (typeof dataUrl === "string" && dataUrl.startsWith("data:")) {
-        try {
-          out[key] = await uploadPhoto(key, dataUrl, out);
-        } catch {
-          out[key] = "";
-          photoFailures.push(key);
-        }
-      }
-    }
+    const summary = CHECKLIST_SECTION
+      ? checklistSummary(CHECKLIST_SECTION, values, selectedKeys)
+      : { notApplicable: "", answeredNo: "", otherNaCount: 0 };
 
-    const payload = { ...out, incidentTypes: types, submittedAt: new Date().toISOString() };
+    const payload = {
+      ...values,
+      incidentTypes: types,
+      submittedAt: new Date().toISOString(),
+      notApplicable: summary.notApplicable,
+      answeredNo: summary.answeredNo,
+      otherNaCount: summary.otherNaCount,
+    };
 
     try {
-      // text/plain keeps this a CORS simple request — Apps Script does not
-      // answer the preflight that application/json would trigger.
       const res = await fetch(`${ENDPOINT}?route=createIncident`, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
@@ -262,7 +378,7 @@ export default function IncidentFormWizard() {
 
       localStorage.removeItem(DRAFT_KEY);
       setStatus("done");
-      setValues({ _incidentId: data.incidentId, _caseNumber: data.caseNumber, _tier: data.tier, _photoFailures: photoFailures.length });
+      setValues({ _incidentId: data.incidentId, _caseNumber: data.caseNumber, _tier: data.tier });
     } catch (err) {
       setStatus("error");
       setError(String(err.message || err));
@@ -286,16 +402,12 @@ export default function IncidentFormWizard() {
             ? "Safety has this now and will call you. Stay where you are if it is safe to do so. You do not need to text it."
             : "Safety will pick this up. No need to text or call unless something changes."}
         </p>
-        {values._photoFailures ? (
-          <p className="mt-4 text-sm text-amber-700">
-            {values._photoFailures} photo{values._photoFailures > 1 ? "s" : ""} could not upload.
-            Please text {values._photoFailures > 1 ? "them" : "it"} to safety.
-          </p>
-        ) : null}
         <CallBar />
       </div>
     );
   }
+
+  const submitting = status === "sending";
 
   return (
     <div className="mx-auto my-6 flex w-full max-w-md flex-col rounded-xl border border-gray-200 bg-white p-6 text-gray-900 shadow-lg">
@@ -319,33 +431,37 @@ export default function IncidentFormWizard() {
           />
         )}
 
-        {current?.kind === "types" && (
-          <TypesScreen types={types} setTypes={setTypes} />
-        )}
+        {current?.kind === "types" && <TypesScreen types={types} setTypes={setTypes} />}
 
         {current?.kind === "group" && (
-          <GroupScreen
-            title={current.title}
-            subtitle={current.subtitle}
-            fields={current.fields}
+          <GroupScreen title={current.title} subtitle={current.subtitle} fields={current.fields} values={values} set={set} />
+        )}
+
+        {current?.kind === "checklist" && (
+          <ChecklistScreen
+            section={current.section}
             values={values}
             set={set}
-            sectionId={current.sectionId}
             selectedTypes={types}
+            selectedKeys={selectedKeys}
+            photoStatus={photoStatus}
+            photoData={photoData}
+            onCapture={capturePhoto}
+            onRetry={retryPhoto}
+            goToGate={goToGate}
           />
         )}
 
-        {current?.kind === "review" && (
-          <ReviewScreen values={values} types={types} onJump={setStep} />
-        )}
+        {current?.kind === "review" && <ReviewScreen values={values} types={types} onJump={setStep} />}
       </div>
 
-      <div className="mt-6 flex items-center gap-3">
+      {anyUploading && (
+        <p className="mt-4 text-sm text-blue-700">Uploading photos… {uploadDone} of {uploadTracked}</p>
+      )}
+
+      <div className="mt-4 flex items-center gap-3">
         {step > 0 && (
-          <button
-            onClick={() => setStep((s) => s - 1)}
-            className="rounded border border-gray-300 px-5 py-3 text-base"
-          >
+          <button onClick={() => setStep((s) => s - 1)} className="rounded border border-gray-300 px-5 py-3 text-base">
             Back
           </button>
         )}
@@ -359,20 +475,17 @@ export default function IncidentFormWizard() {
           </button>
         ) : (
           <button
-            disabled={status === "sending"}
+            disabled={submitting || anyUploading}
             onClick={submit}
             className="flex-1 rounded bg-blue-600 px-5 py-4 text-base font-medium text-white disabled:bg-gray-300"
           >
-            {status === "sending" ? "Sending…" : "Submit report"}
+            {submitting ? "Sending…" : anyUploading ? "Waiting on photos…" : "Submit report"}
           </button>
         )}
       </div>
 
       {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
-
-      {savedAt && (
-        <p className="mt-3 text-xs text-gray-500">Saved — safe to close and come back</p>
-      )}
+      {savedAt && <p className="mt-3 text-xs text-gray-500">Saved — safe to close and come back</p>}
 
       <CallBar />
     </div>
@@ -416,7 +529,6 @@ function GateScreen({ field, value, onPick, banner }) {
 function TypesScreen({ types, setTypes }) {
   const toggle = (label) =>
     setTypes(types.includes(label) ? types.filter((t) => t !== label) : [...types, label]);
-
   return (
     <div>
       <h1 className="text-2xl font-medium leading-snug">What happened?</h1>
@@ -438,35 +550,12 @@ function TypesScreen({ types, setTypes }) {
   );
 }
 
-function GroupScreen({ title, subtitle, fields, values, set, sectionId, selectedTypes }) {
-  // Surface the paper checklist alongside the photo step — same guidance the
-  // drivers already have, at the moment they need it.
-  const checklist =
-    sectionId === "photosCore"
-      ? selectedTypes.some((t) => t.startsWith("Accident"))
-        ? CHECKLISTS.accident
-        : selectedTypes.some((t) => t.toLowerCase().includes("someone else"))
-        ? CHECKLISTS.damageTheirs
-        : null
-      : null;
-
+function GroupScreen({ title, subtitle, fields, values, set }) {
   return (
     <div>
       <h1 className="text-xl font-medium">{title}</h1>
       {subtitle && (
-        <p className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">
-          {subtitle}
-        </p>
-      )}
-      {checklist && (
-        <a
-          href={checklist}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-3 inline-block text-sm text-blue-700 underline"
-        >
-          Open the printed checklist
-        </a>
+        <p className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">{subtitle}</p>
       )}
       <div className="mt-5 flex flex-col gap-5">
         {fields.map((f) => (
@@ -477,15 +566,224 @@ function GroupScreen({ title, subtitle, fields, values, set, sectionId, selected
   );
 }
 
-function Field({ field, values, set }) {
-  const base =
-    "w-full rounded border border-gray-300 bg-white px-3 py-3 text-base text-gray-900 placeholder-gray-500";
-  const value = values[field.key];
-  const required = isRequired(field, values);
+function ChecklistScreen({ section, values, set, selectedTypes, selectedKeys, photoStatus, photoData, onCapture, onRetry, goToGate }) {
+  const checklistLink = selectedTypes.some((t) => t.startsWith("Accident"))
+    ? CHECKLISTS.accident
+    : selectedTypes.some((t) => t.toLowerCase().includes("someone else"))
+    ? CHECKLISTS.damageTheirs
+    : null;
 
-  // hideUnlessRequired: an item that doesn't apply right now disappears rather
-  // than sitting there as noise.
-  if (field.hideUnlessRequired && !required) return null;
+  const rows = section.rows.filter((r) => rowVisible(r, values, selectedKeys));
+
+  return (
+    <div>
+      <h1 className="text-xl font-medium">{section.title}</h1>
+      {section.subtitle && (
+        <p className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">{section.subtitle}</p>
+      )}
+      {checklistLink && (
+        <a href={checklistLink} target="_blank" rel="noreferrer" className="mt-3 inline-block text-sm text-blue-700 underline">
+          Open the printed checklist
+        </a>
+      )}
+      <div className="mt-5 flex flex-col gap-4">
+        {rows.map((row) => (
+          <ChecklistRow
+            key={row.key}
+            row={row}
+            values={values}
+            set={set}
+            photoStatus={photoStatus}
+            photoData={photoData}
+            onCapture={onCapture}
+            onRetry={onRetry}
+            goToGate={goToGate}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ChecklistRow({ row, values, set, photoStatus, photoData, onCapture, onRetry, goToGate }) {
+  const reveal = row.revealOn || "Yes";
+  const complete = rowComplete(row, values, photoStatus);
+  const border = complete ? "border-gray-200" : "border-amber-300";
+
+  const renderFields = (fields) => (
+    <div className="mt-3 flex flex-col gap-4">
+      {fields.map((f) =>
+        f.type === "photo" ? (
+          <PhotoField
+            key={f.key}
+            field={f}
+            status={photoStatus[f.key]}
+            hasData={!!photoData[f.key]}
+            onCapture={onCapture}
+            onRetry={onRetry}
+          />
+        ) : (
+          <Field key={f.key} field={f} values={values} set={set} forceRequired />
+        )
+      )}
+    </div>
+  );
+
+  // NA reason picker (asked rows in N/A, or locked-revealed couldn't-provide)
+  const renderNaReasons = () => {
+    const reasonKey = row.key + "_naReason";
+    const reason = values[reasonKey];
+    return (
+      <div className="mt-3 flex flex-col gap-2">
+        {row.naReasons.map((rr) => (
+          <button
+            key={rr}
+            type="button"
+            onClick={() => set(reasonKey, rr)}
+            className={`rounded border px-3 py-2 text-left text-sm ${
+              reason === rr ? "border-blue-600 bg-blue-50 font-medium" : "border-gray-300"
+            }`}
+          >
+            {rr}
+          </button>
+        ))}
+        {/^Other/i.test(reason || "") && (
+          <textarea
+            rows={2}
+            value={values[row.key + "_naNote"] || ""}
+            onChange={(e) => set(row.key + "_naNote", e.target.value)}
+            placeholder="Explain in a sentence (required)"
+            className={INPUT}
+          />
+        )}
+        {row.naFollowUp && reason === row.naFollowUp.when && (
+          <div className="mt-1 flex flex-col gap-4">
+            {row.naFollowUp.fields.map((f) => (
+              <Field key={f.key} field={f} values={values} set={set} forceRequired />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // --- Always required: no buttons -----------------------------------------
+  if (row.type === "alwaysRequired") {
+    return (
+      <div className={`rounded-lg border ${border} p-3`}>
+        <p className="text-sm font-semibold">{row.label}</p>
+        {renderFields(row.fields)}
+      </div>
+    );
+  }
+
+  // --- Locked: read the gate, show the answer ------------------------------
+  if (row.answeredBy) {
+    const ans = values[row.answeredBy];
+    const revealed = ans === reveal;
+    return (
+      <div className={`rounded-lg border ${border} p-3`}>
+        <p className="text-sm font-semibold">{row.label}</p>
+        <div className="mt-1 flex items-center gap-2 text-sm">
+          <span className="rounded bg-gray-100 px-2 py-0.5 font-medium">{ans || "—"} — from your earlier answer</span>
+          <button type="button" onClick={() => goToGate(row.answeredBy)} className="text-blue-700 underline">
+            change
+          </button>
+        </div>
+        {revealed && renderFields(row.fields)}
+        {revealed && row.naReasons && !fieldsOk(row, values, photoStatus) && (
+          <div className="mt-3">
+            <p className="text-xs text-gray-600">Can&apos;t provide this? Choose a reason:</p>
+            {renderNaReasons()}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // --- Asked: three buttons ------------------------------------------------
+  const ans = values[row.key];
+  const btns = row.naReasons ? [reveal, "No", "N/A"] : [reveal, "No"];
+  return (
+    <div className={`rounded-lg border ${border} p-3`}>
+      <p className="text-sm font-semibold">{row.label}</p>
+      {row.sublabel && <p className="text-xs text-gray-600">{row.sublabel}</p>}
+      <div className="mt-2 flex gap-2">
+        {btns.map((b) => (
+          <button
+            key={b}
+            type="button"
+            onClick={() => set(row.key, b)}
+            className={`flex-1 rounded border-2 px-3 py-2 text-sm font-medium ${
+              ans === b ? "border-blue-600 bg-blue-50" : "border-gray-300"
+            }`}
+          >
+            {b}
+          </button>
+        ))}
+      </div>
+      {ans === reveal && renderFields(row.fields)}
+      {ans === "N/A" && row.naReasons && renderNaReasons()}
+    </div>
+  );
+}
+
+function PhotoField({ field, status, hasData, onCapture, onRetry }) {
+  return (
+    <div>
+      <span className="mb-1 block text-sm font-medium">
+        {field.label}
+        {field.required && <span className="text-red-600"> *</span>}
+      </span>
+      {field.hint && <span className="mb-2 block text-xs text-gray-600">{field.hint}</span>}
+
+      {status === "done" ? (
+        <div className="text-sm font-medium text-green-700">✓ Photo uploaded</div>
+      ) : status === "uploading" ? (
+        <div className="text-sm text-gray-600">Uploading…</div>
+      ) : status === "failed" ? (
+        <div>
+          <p className="text-sm font-medium text-red-700">Upload failed — your photo is still saved on this form.</p>
+          <button
+            type="button"
+            onClick={() => onRetry(field.key)}
+            className="mt-2 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white"
+          >
+            Retry upload
+          </button>
+          <label className="mt-2 block text-xs text-gray-600">
+            or take a different photo
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) onCapture(field.key, f);
+              }}
+              className={INPUT}
+            />
+          </label>
+        </div>
+      ) : (
+        <input
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onCapture(field.key, f);
+          }}
+          className={INPUT}
+        />
+      )}
+    </div>
+  );
+}
+
+function Field({ field, values, set, forceRequired }) {
+  const value = values[field.key];
+  const required = forceRequired ? !!(field.required || field.requiredIf) && isRequired(field, values) : isRequired(field, values);
 
   const labelEl = (
     <span className="mb-1 block text-sm font-medium">
@@ -494,60 +792,17 @@ function Field({ field, values, set }) {
     </span>
   );
 
-  // Soft gate: a required-but-empty item that offers a skip reason shows a
-  // "why not?" box. Filling the box satisfies the item (see fieldSatisfied).
-  const skipBox =
-    required && !value && field.skipReasonKey ? (
-      <div className="mt-2">
-        <span className="mb-1 block text-xs text-gray-600">
-          Can&apos;t get this one? Tell us why
-        </span>
-        <input
-          type="text"
-          value={values[field.skipReasonKey] || ""}
-          onChange={(e) => set(field.skipReasonKey, e.target.value)}
-          className={base}
-        />
-      </div>
-    ) : null;
-
-  // Photo fields capture the image instead of asking whether one was taken.
-  // capture="environment" opens the rear camera directly on Android.
-  if (field.type === "photo") {
-    return (
-      <label className="block">
-        {labelEl}
-        {field.hint && <span className="mb-2 block text-xs text-gray-600">{field.hint}</span>}
-        <input
-          type="file"
-          accept="image/*"
-          capture="environment"
-          onChange={async (e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            const dataUrl = await downscaleImage(file);
-            set(field.key, dataUrl);
-          }}
-          className={base}
-        />
-        {value && <span className="mt-1 block text-xs text-green-700">Photo attached</span>}
-        {skipBox}
-      </label>
-    );
-  }
-
   if (field.type === "select") {
     const opts = field.key === "state" ? US_STATES : field.options || [];
     return (
       <label className="block">
         {labelEl}
-        <select value={value || ""} onChange={(e) => set(field.key, e.target.value)} className={base}>
+        <select value={value || ""} onChange={(e) => set(field.key, e.target.value)} className={INPUT}>
           <option value="">Choose…</option>
           {opts.map((o) => (
             <option key={o} value={o}>{o}</option>
           ))}
         </select>
-        {skipBox}
       </label>
     );
   }
@@ -557,13 +812,12 @@ function Field({ field, values, set }) {
       <label className="block">
         {labelEl}
         <textarea
-          rows={5}
+          rows={4}
           value={value || ""}
           onChange={(e) => set(field.key, e.target.value)}
-          className={base}
-          placeholder="You can use the microphone on your keyboard instead of typing."
+          className={INPUT}
+          placeholder={field.placeholder || "You can use the microphone on your keyboard instead of typing."}
         />
-        {skipBox}
       </label>
     );
   }
@@ -574,10 +828,10 @@ function Field({ field, values, set }) {
       <input
         type={field.type === "date" ? "date" : field.type === "time" ? "time" : "text"}
         value={value || ""}
+        placeholder={field.placeholder}
         onChange={(e) => set(field.key, e.target.value)}
-        className={base}
+        className={INPUT}
       />
-      {skipBox}
     </label>
   );
 }
@@ -606,13 +860,8 @@ function ReviewScreen({ values, types, onJump }) {
 }
 
 function CallBar() {
-  // Always present, every screen, never gated by form state. A driver who
-  // knows something is wrong should not have to find the right dropdown.
-  //
-  // TEMPORARY: this is a test number (Brandon's cell) for bug-shakeout only.
-  // TODO(before drivers use this): replace with the REAL safety line(s).
-  // Shipping a wrong "Call safety now" number is the one failure mode this bar
-  // exists to prevent.
+  // TEMPORARY: test number (Brandon's cell). Replace with the real safety
+  // line(s) before drivers use this.
   return (
     <a
       href="tel:+19894297145"
