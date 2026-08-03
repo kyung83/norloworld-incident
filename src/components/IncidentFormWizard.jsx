@@ -346,6 +346,14 @@ export default function IncidentFormWizard() {
     [steps]
   );
 
+  const jumpToSection = useCallback(
+    (title) => {
+      const idx = steps.findIndex((s) => (s.title || "Initial Assessment") === title);
+      if (idx >= 0) setStep(idx);
+    },
+    [steps]
+  );
+
   // --- validation -----------------------------------------------------------
   const blocked = useMemo(() => {
     if (!current) return false;
@@ -430,6 +438,8 @@ export default function IncidentFormWizard() {
         <div className="h-1 rounded bg-blue-600 transition-all" style={{ width: `${pct}%` }} />
       </div>
 
+      <CallBar />
+
       <div className="flex-1">
         {current?.kind === "gate" && (
           <GateScreen
@@ -464,7 +474,15 @@ export default function IncidentFormWizard() {
           />
         )}
 
-        {current?.kind === "review" && <ReviewScreen values={values} types={types} onJump={setStep} />}
+        {current?.kind === "review" && (
+          <ReviewScreen
+            values={values}
+            types={types}
+            steps={steps}
+            onJump={jumpToSection}
+            onRestart={() => setStep(0)}
+          />
+        )}
       </div>
 
       {anyUploading && (
@@ -498,8 +516,6 @@ export default function IncidentFormWizard() {
 
       {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
       {savedAt && <p className="mt-3 text-xs text-gray-500">Saved — safe to close and come back</p>}
-
-      <CallBar />
     </div>
   );
 }
@@ -849,38 +865,113 @@ function Field({ field, values, set, forceRequired }) {
   );
 }
 
-function ReviewScreen({ values, types, onJump }) {
-  const filled = Object.entries(values).filter(
-    ([k, v]) => v && !k.startsWith("_") && typeof v === "string" && !v.startsWith("data:")
-  );
+function ReviewScreen({ values, types, steps, onJump, onRestart }) {
+  // Walk the same sections the driver filled, in order and in the same words —
+  // never a raw key.
+  const groups = steps
+    .filter((s) => s.kind === "group" || s.kind === "gate")
+    .reduce((acc, step) => {
+      const title = step.title || "Initial Assessment";
+      const fields = step.fields || [step.field];
+      const rows = fields
+        .filter((f) => f && values[f.key] !== undefined && values[f.key] !== "")
+        .map((f) => ({ label: f.label, key: f.key, value: values[f.key] }));
+      if (rows.length) {
+        const existing = acc.find((g) => g.title === title);
+        if (existing) existing.rows.push(...rows);
+        else acc.push({ title, rows });
+      }
+      return acc;
+    }, []);
+
+  const photoCount = Object.keys(values).filter(
+    (k) => k.startsWith("photo") && String(values[k]).startsWith("http")
+  ).length;
+
   return (
     <div>
       <h1 className="text-xl font-medium">Check before sending</h1>
-      <p className="mt-2 text-sm text-gray-600">{types.join(", ") || "No type selected"}</p>
-      <dl className="mt-4 divide-y divide-gray-200 border-y border-gray-200">
-        {filled.map(([k, v]) => (
-          <div key={k} className="flex justify-between gap-4 py-2">
-            <dt className="text-sm text-gray-600">{k}</dt>
-            <dd className="text-sm font-medium">{String(v).slice(0, 60)}</dd>
+      <p className="mt-1 text-sm text-gray-600">{types.join(", ")}</p>
+
+      {photoCount > 0 && (
+        <p className="mt-3 rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800">
+          {photoCount} photo{photoCount === 1 ? "" : "s"} uploaded
+        </p>
+      )}
+
+      {groups.map((g) => (
+        <div key={g.title} className="mt-5">
+          <div className="mb-1 flex items-baseline justify-between">
+            <h2 className="text-sm font-medium text-gray-500">{g.title}</h2>
+            <button onClick={() => onJump(g.title)} className="text-xs text-blue-700 underline">
+              Edit
+            </button>
           </div>
-        ))}
-      </dl>
-      <button onClick={() => onJump(0)} className="mt-4 text-sm text-blue-700 underline">
-        Start over from the first question
+          <dl className="divide-y divide-gray-200 border-y border-gray-200">
+            {g.rows.map((r) => (
+              <div key={r.key} className="flex items-start justify-between gap-4 py-2">
+                <dt className="text-sm text-gray-600">{r.label}</dt>
+                <dd className="text-right text-sm font-medium text-gray-900">
+                  {formatValue(r.key, r.value)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ))}
+
+      <button onClick={onRestart} className="mt-6 text-xs text-gray-400 underline">
+        Start over
       </button>
     </div>
   );
 }
 
+// A Drive URL is noise that tells a driver nothing — he knows he took the
+// picture; he needs to know it made it.
+function formatValue(key, value) {
+  const s = String(value);
+  if (s.startsWith("http")) return "Uploaded";
+  if (s.length > 60) return s.slice(0, 57) + "…";
+  return s;
+}
+
 function CallBar() {
   // TEMPORARY: test number (Brandon's cell). Replace with the real safety
   // line(s) before drivers use this.
+  const [confirming, setConfirming] = useState(false);
+
+  if (!confirming) {
+    return (
+      <button
+        onClick={() => setConfirming(true)}
+        className="mb-4 block w-full rounded border border-red-300 bg-red-50 py-3 text-center text-sm font-medium text-red-800"
+      >
+        Call safety now
+      </button>
+    );
+  }
+
   return (
-    <a
-      href="tel:+19894297145"
-      className="mt-6 block rounded border border-red-300 bg-red-50 py-3 text-center text-sm font-medium text-red-800"
-    >
-      Call safety now
-    </a>
+    <div className="mb-4 rounded border border-red-300 bg-red-50 p-4">
+      <p className="text-sm font-medium text-red-800">Call the safety line?</p>
+      <p className="mt-1 text-xs text-red-700">
+        Your report is saved. You can come back and finish it after the call.
+      </p>
+      <div className="mt-3 flex gap-2">
+        <a
+          href="tel:+19894297145"
+          className="flex-1 rounded bg-red-600 py-3 text-center text-sm font-medium text-white"
+        >
+          Yes, call now
+        </a>
+        <button
+          onClick={() => setConfirming(false)}
+          className="flex-1 rounded border border-red-300 py-3 text-center text-sm text-red-800"
+        >
+          Go back
+        </button>
+      </div>
+    </div>
   );
 }
