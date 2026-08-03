@@ -37,6 +37,64 @@ const US_STATES = [
   "VA","WA","WV","WI","WY","DC","ON","QC",
 ];
 
+const PHOTO_KEYS = ["photoScene", "photoOurEquipment", "photoOtherProperty"];
+const SLOT_LABEL = {
+  photoScene: "scene",
+  photoOurEquipment: "our-truck",
+  photoOtherProperty: "other",
+};
+
+// Downscale a captured photo so uploads are fast and small (~200–400 KB from a
+// phone camera). Returns a JPEG data URL; falls back to the original on any
+// canvas/Image error — a big photo beats no photo.
+async function downscaleImage(file, maxEdge = 1600, quality = 0.7) {
+  const readAsDataUrl = (f) =>
+    new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = rej;
+      r.readAsDataURL(f);
+    });
+  const original = await readAsDataUrl(file);
+  try {
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = rej;
+      i.src = original;
+    });
+    const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+    const w = Math.round(img.width * scale);
+    const h = Math.round(img.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+    return canvas.toDataURL("image/jpeg", quality);
+  } catch {
+    return original;
+  }
+}
+
+// Upload one downscaled photo; resolves to its Drive URL. text/plain keeps this
+// a CORS simple request, same as the incident submit.
+async function uploadPhoto(slot, dataUrl, ctx) {
+  const res = await fetch(`${ENDPOINT}?route=savePhoto`, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({
+      slot: SLOT_LABEL[slot] || slot,
+      driverName: ctx.driverName || "",
+      dateOfIncident: ctx.dateOfIncident || "",
+      dataUrl,
+    }),
+    redirect: "follow",
+  });
+  const data = await res.json();
+  if (!data.ok || !data.url) throw new Error(data.error || "photo upload failed");
+  return data.url;
+}
+
 export default function IncidentFormWizard() {
   const [values, setValues] = useState({});
   const [types, setTypes] = useState([]);
@@ -133,7 +191,25 @@ export default function IncidentFormWizard() {
   async function submit() {
     setStatus("sending");
     setError("");
-    const payload = { ...values, incidentTypes: types, submittedAt: new Date().toISOString() };
+
+    // Upload any captured photos to Drive first, swapping the image data for
+    // its URL. A photo that fails to upload never blocks the incident itself —
+    // getting the report in matters more than the picture.
+    const out = { ...values };
+    const photoFailures = [];
+    for (const key of PHOTO_KEYS) {
+      const dataUrl = out[key];
+      if (typeof dataUrl === "string" && dataUrl.startsWith("data:")) {
+        try {
+          out[key] = await uploadPhoto(key, dataUrl, out);
+        } catch {
+          out[key] = "";
+          photoFailures.push(key);
+        }
+      }
+    }
+
+    const payload = { ...out, incidentTypes: types, submittedAt: new Date().toISOString() };
 
     try {
       // text/plain keeps this a CORS simple request — Apps Script does not
@@ -149,7 +225,7 @@ export default function IncidentFormWizard() {
 
       localStorage.removeItem(DRAFT_KEY);
       setStatus("done");
-      setValues({ _incidentId: data.incidentId, _tier: data.tier });
+      setValues({ _incidentId: data.incidentId, _tier: data.tier, _photoFailures: photoFailures.length });
     } catch (err) {
       setStatus("error");
       setError(String(err.message || err));
@@ -169,6 +245,12 @@ export default function IncidentFormWizard() {
             ? "Safety has been notified and will contact you shortly. Stay where you are if it is safe to do so."
             : "Safety will review this and reach out if they need anything further."}
         </p>
+        {values._photoFailures ? (
+          <p className="mt-4 text-sm text-amber-700">
+            {values._photoFailures} photo{values._photoFailures > 1 ? "s" : ""} could not upload.
+            Please text {values._photoFailures > 1 ? "them" : "it"} to safety.
+          </p>
+        ) : null}
         <CallBar />
       </div>
     );
@@ -357,12 +439,11 @@ function Field({ field, value, set }) {
           type="file"
           accept="image/*"
           capture="environment"
-          onChange={(e) => {
+          onChange={async (e) => {
             const file = e.target.files?.[0];
             if (!file) return;
-            const reader = new FileReader();
-            reader.onload = () => set(field.key, reader.result);
-            reader.readAsDataURL(file);
+            const dataUrl = await downscaleImage(file);
+            set(field.key, dataUrl);
           }}
           className={base}
         />
