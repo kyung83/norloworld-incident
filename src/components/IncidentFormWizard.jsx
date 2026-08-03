@@ -152,7 +152,7 @@ function checklistSummary(section, values, selectedKeys) {
   return { notApplicable: na.join("\n"), answeredNo: no.join("\n"), otherNaCount };
 }
 
-async function downscaleImage(file, maxEdge = 1600, quality = 0.7) {
+async function downscaleImage(file, maxEdge = 1600, quality = 0.6) {
   const readAsDataUrl = (f) =>
     new Promise((res, rej) => {
       const r = new FileReader();
@@ -181,21 +181,30 @@ async function downscaleImage(file, maxEdge = 1600, quality = 0.7) {
   }
 }
 
-async function uploadPhoto(slot, dataUrl, ctx) {
-  const res = await fetch(`${ENDPOINT}?route=savePhoto`, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({
-      slot: SLOT_LABEL[slot] || slot,
-      driverName: ctx.driverName || "",
-      dateOfIncident: ctx.dateOfIncident || "",
-      dataUrl,
-    }),
-    redirect: "follow",
-  });
-  const data = await res.json();
-  if (!data.ok || !data.url) throw new Error(data.error || "photo upload failed");
-  return data.url;
+async function uploadPhoto(slot, dataUrl, ctx, timeoutMs = 45000) {
+  // Bound the request so a stalled upload on poor signal fails fast (→ Retry)
+  // instead of hanging forever.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${ENDPOINT}?route=savePhoto`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        slot: SLOT_LABEL[slot] || slot,
+        driverName: ctx.driverName || "",
+        dateOfIncident: ctx.dateOfIncident || "",
+        dataUrl,
+      }),
+      redirect: "follow",
+      signal: ctrl.signal,
+    });
+    const data = await res.json();
+    if (!data.ok || !data.url) throw new Error(data.error || "photo upload failed");
+    return data.url;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // =============================================================================
@@ -251,7 +260,7 @@ export default function IncidentFormWizard() {
   }, []);
 
   // --- photo upload state machine ------------------------------------------
-  const doUpload = useCallback(async (fieldKey, dataUrl) => {
+  const doUpload = useCallback(async (fieldKey, dataUrl, attempt = 0) => {
     setPhotoStatus((s) => ({ ...s, [fieldKey]: "uploading" }));
     try {
       const ctx = {
@@ -262,6 +271,9 @@ export default function IncidentFormWizard() {
       setValues((v) => ({ ...v, [fieldKey]: url }));
       setPhotoStatus((s) => ({ ...s, [fieldKey]: "done" }));
     } catch {
+      // One automatic retry smooths over a transient blip before we ask the
+      // driver to tap Retry.
+      if (attempt < 1) return doUpload(fieldKey, dataUrl, attempt + 1);
       setPhotoStatus((s) => ({ ...s, [fieldKey]: "failed" }));
     }
   }, []);
