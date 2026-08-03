@@ -827,6 +827,7 @@ function Field({ field, values, set, forceRequired }) {
       {labelEl}
       <input
         type={field.type === "date" ? "date" : field.type === "time" ? "time" : "text"}
+        inputMode={field.inputMode}
         value={value || ""}
         placeholder={field.placeholder}
         onChange={(e) => set(field.key, e.target.value)}

@@ -52,8 +52,8 @@ export const SECTIONS = [
     types: null,
     fields: [
       { key: "driverName", label: "Last Name, First Name", type: "text", required: true },
-      { key: "truckNumber", label: "Northern Truck #", type: "text", required: true },
-      { key: "trailerNumber", label: "Northern Trailer #", type: "text", required: true },
+      { key: "truckNumber", label: "Northern Truck #", type: "text", inputMode: "numeric", required: true },
+      { key: "trailerNumber", label: "Northern Trailer #", type: "text", inputMode: "numeric", required: true },
       { key: "dateOfIncident", label: "Date of Incident", type: "date", required: true },
       { key: "timeOfIncident", label: "Time of Incident", type: "time" },
     ],
