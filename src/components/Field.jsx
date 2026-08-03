@@ -38,7 +38,7 @@ export default function Field({ field, value, onChange, invalid }) {
           className={inputClasses(invalid)}
         >
           <option value="">—</option>
-          {options.map((opt) => (
+          {(options || []).map((opt) => (
             <option key={opt} value={opt}>
               {opt}
             </option>

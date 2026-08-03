@@ -30,6 +30,13 @@ const YESNO = ["Yes", "No", "N/A"];
 const YNU = ["Yes", "No", "Unknown"];
 const YN = ["Yes", "No"];
 
+const US_STATES = [
+  "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
+  "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+  "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+  "VA","WA","WV","WI","WY","DC","ON","QC",
+];
+
 // Each section: { id, title, subtitle?, types, fields: [{ key, label, type, options?, required?, placeholder? }] }
 // field.type: 'text' | 'textarea' | 'date' | 'time' | 'select'
 export const SECTIONS = [
@@ -73,11 +80,14 @@ export const SECTIONS = [
   },
   {
     id: "intake",
-    title: "Intake",
+    title: "Where did this happen?",
     types: null,
     fields: [
-      { key: "location", label: "Incident Location (Company or location name / Address)", type: "text" },
-      { key: "driverContact", label: "Driver Name and Phone Number", type: "text" },
+      { key: "siteName", label: "Company or place name", type: "text", placeholder: "Customer name, truck stop, rest area" },
+      { key: "streetAddress", label: "Street address or nearest cross street", type: "text", placeholder: "Or mile marker and direction", required: true },
+      { key: "city", label: "City", type: "text", required: true },
+      { key: "state", label: "State", type: "select", options: US_STATES, required: true },
+      { key: "driverPhone", label: "Best number to reach you", type: "text", placeholder: "989-555-0100" },
     ],
   },
   {
@@ -119,13 +129,13 @@ export const SECTIONS = [
   },
   {
     id: "media",
-    title: "Pictures / Video",
+    title: "Photos",
     types: ["accident", "vehicleDamage", "propertyDamage"],
     fields: [
-      { key: "truckTrailerPics", label: "Our truck and trailer (multiple angles) collected?", type: "select", options: YESNO },
-      { key: "involvedPics", label: "Vehicles / Equipment / Property involved (all) collected?", type: "select", options: YESNO },
-      { key: "scenePic", label: "Accident scene (wide picture) collected?", type: "select", options: YESNO },
-      { key: "reportCardNumber", label: "Accident Report Card / Number", type: "text" },
+      { key: "photoScene", label: "Wide shot of the whole scene", type: "photo", hint: "Stand back far enough to show everything involved and the road." },
+      { key: "photoOurEquipment", label: "Our truck and trailer", type: "photo", hint: "Multiple angles. Include the damage and the unit number." },
+      { key: "photoOtherProperty", label: "The other vehicle or property", type: "photo", hint: "All sides, not just the damage." },
+      { key: "reportCardNumber", label: "Accident report card or number", type: "text" },
     ],
   },
   {

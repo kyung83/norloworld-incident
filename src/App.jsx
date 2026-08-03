@@ -1,5 +1,7 @@
 import { HashRouter, Routes, Route, Link, useLocation } from "react-router-dom";
-import { IncidentForm } from "./components";
+// Driver-facing form. Swap to `IncidentForm` here to revert to the single-page
+// version (kept in the repo as a fallback).
+import { IncidentFormWizard } from "./components";
 
 const navigation = [{ name: "Incident Report", href: "/" }];
 
@@ -55,7 +57,7 @@ function Shell() {
         <main className="flex flex-col flex-1">
           <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 flex flex-col flex-1 w-full">
             <Routes>
-              <Route path="/" element={<IncidentForm />} />
+              <Route path="/" element={<IncidentFormWizard />} />
             </Routes>
           </div>
         </main>
