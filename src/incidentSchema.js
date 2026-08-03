@@ -89,7 +89,7 @@ export const SECTIONS = [
       { key: "streetAddress", label: "Street address or nearest cross street", type: "text", placeholder: "Or mile marker and direction", required: true },
       { key: "city", label: "City", type: "text", required: true },
       { key: "state", label: "State", type: "select", options: US_STATES, required: true },
-      { key: "driverPhone", label: "Best number to reach you", type: "text", inputMode: "tel", placeholder: "989-555-0100" },
+      { key: "driverPhone", label: "Best number to reach you", type: "text", inputMode: "numeric", placeholder: "989-555-0100" },
     ],
   },
   {
@@ -212,7 +212,7 @@ export const SECTIONS = [
         fields: [
           { key: "photoOtherId", label: "Picture of their ID", type: "photo", required: true },
           { key: "photoOtherInsurance", label: "Picture of their insurance info", type: "photo", required: true },
-          { key: "otherDriverPhone", label: "Their phone number", type: "text", inputMode: "tel", required: true },
+          { key: "otherDriverPhone", label: "Their phone number", type: "text", inputMode: "numeric", required: true },
           { key: "gaveOurInfo", label: "Did they ask for your license and insurance?", type: "select", options: ["Yes, I provided it", "They did not ask"], required: true },
         ],
       },
@@ -245,7 +245,7 @@ export const SECTIONS = [
         naReasons: ["Facility closed, nobody there", "Nobody would give a name", "Other — I'll explain"],
         fields: [
           { key: "customerContactName", label: "Name of a contact at the facility", type: "text", required: true },
-          { key: "customerContactPhone", label: "Their phone number", type: "text", inputMode: "tel", required: true },
+          { key: "customerContactPhone", label: "Their phone number", type: "text", inputMode: "numeric", required: true },
         ],
       },
     ],
