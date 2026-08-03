@@ -48,6 +48,7 @@ const SLOT_LABEL = {
   photoOtherProperty: "other-property",
   photoOtherId: "other-id",
   photoOtherInsurance: "other-insurance",
+  photoOtherVehicle: "other-vehicle",
   photoTicket: "ticket",
   photoPoliceReport: "police-report",
   photoLoadWide: "load-wide",
@@ -437,7 +438,9 @@ function GroupScreen({ title, subtitle, fields, values, set, sectionId, selected
     sectionId === "photosCore"
       ? selectedTypes.some((t) => t.startsWith("Accident"))
         ? CHECKLISTS.accident
-        : CHECKLISTS.propertyDamage
+        : selectedTypes.some((t) => t.toLowerCase().includes("someone else"))
+        ? CHECKLISTS.damageTheirs
+        : null
       : null;
 
   return (
