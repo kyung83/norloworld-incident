@@ -272,7 +272,7 @@ export default function IncidentFormWizard() {
   // --- confirmation ---------------------------------------------------------
   if (status === "done") {
     return (
-      <div className="mx-auto min-h-screen max-w-md bg-white p-6 text-center text-gray-900">
+      <div className="mx-auto my-6 w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 text-center text-gray-900 shadow-lg">
         <h1 className="text-xl font-medium">Report submitted</h1>
         <p className="mt-2 text-sm text-gray-600">
           Reference {values._incidentId}
@@ -294,7 +294,7 @@ export default function IncidentFormWizard() {
   }
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-md flex-col bg-white p-4 text-gray-900">
+    <div className="mx-auto my-6 flex w-full max-w-md flex-col rounded-xl border border-gray-200 bg-white p-6 text-gray-900 shadow-lg">
       <div className="mb-1 text-xs text-gray-500">
         Step {step + 1} of {steps.length}
       </div>
@@ -385,7 +385,10 @@ function GateScreen({ field, value, onPick, banner }) {
     <div>
       {banner && (
         <div className="mb-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-          {banner}
+          <div>{banner}</div>
+          <a href="tel:+19898027135" className="mt-1 block font-semibold underline">
+            Driver Line: (989) 802-7135
+          </a>
         </div>
       )}
       <h1 className="text-2xl font-medium leading-snug">{field.label}</h1>
