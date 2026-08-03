@@ -262,7 +262,7 @@ export default function IncidentFormWizard() {
 
       localStorage.removeItem(DRAFT_KEY);
       setStatus("done");
-      setValues({ _incidentId: data.incidentId, _tier: data.tier, _photoFailures: photoFailures.length });
+      setValues({ _incidentId: data.incidentId, _caseNumber: data.caseNumber, _tier: data.tier, _photoFailures: photoFailures.length });
     } catch (err) {
       setStatus("error");
       setError(String(err.message || err));
@@ -274,9 +274,13 @@ export default function IncidentFormWizard() {
     return (
       <div className="mx-auto my-6 w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 text-center text-gray-900 shadow-lg">
         <h1 className="text-xl font-medium">Report submitted</h1>
-        <p className="mt-2 text-sm text-gray-600">
-          Reference {values._incidentId}
-        </p>
+        {values._caseNumber && (
+          <>
+            <p className="mt-3 text-xs uppercase tracking-wide text-gray-500">Case number</p>
+            <p className="text-3xl font-bold tracking-wider">{values._caseNumber}</p>
+          </>
+        )}
+        <p className="mt-2 text-xs text-gray-500">Reference {values._incidentId}</p>
         <p className="mt-4 text-sm text-gray-600">
           {values._tier === 1
             ? "Safety has this now and will call you. Stay where you are if it is safe to do so. You do not need to text it."
