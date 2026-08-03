@@ -8,7 +8,7 @@
 // Until the Apps Script is deployed, leave this as the placeholder. The form
 // still works end-to-end in the UI; submitting will show a clear message
 // instead of posting. Once you deploy the script, paste its /exec URL here.
-export const ENDPOINT = "REPLACE_WITH_YOUR_APPS_SCRIPT_EXEC_URL";
+export const ENDPOINT = "https://script.google.com/macros/s/AKfycbwZdrlWJiXQAmij2_EeWfaVeLDvXVmqtBwt5EpAbnMgWEw-A5MV43AsPkKVm5VazJ8O/exec";
 
 export const isEndpointConfigured = () =>
   typeof ENDPOINT === "string" && ENDPOINT.startsWith("https://");
