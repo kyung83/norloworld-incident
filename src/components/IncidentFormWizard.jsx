@@ -37,12 +37,49 @@ const US_STATES = [
   "VA","WA","WV","WI","WY","DC","ON","QC",
 ];
 
-const PHOTO_KEYS = ["photoScene", "photoOurEquipment", "photoOtherProperty"];
+// Every photo field in the schema uploads to Drive — derive the list so new
+// photo fields are picked up automatically.
+const PHOTO_KEYS = SECTIONS.flatMap((s) =>
+  s.fields.filter((f) => f.type === "photo").map((f) => f.key)
+);
 const SLOT_LABEL = {
   photoScene: "scene",
   photoOurEquipment: "our-truck",
-  photoOtherProperty: "other",
+  photoOtherProperty: "other-property",
+  photoOtherId: "other-id",
+  photoOtherInsurance: "other-insurance",
+  photoTicket: "ticket",
+  photoPoliceReport: "police-report",
+  photoLoadWide: "load-wide",
+  photoLoadDamage: "load-damage",
 };
+
+// A section shows when its type matches AND its showIf gate (if any) holds.
+function sectionVisible(s, values, selectedKeys) {
+  const typeOk = s.types === null || s.types.some((t) => selectedKeys.includes(t));
+  const ifOk = !s.showIf || values[s.showIf.key] === s.showIf.equals;
+  return typeOk && ifOk;
+}
+
+// Requiredness is computed: statically required, or required only when a gate
+// answer makes it apply ("common sense" written down).
+function isRequired(f, values) {
+  if (f.required) return true;
+  if (f.requiredIf) return values[f.requiredIf.key] === f.requiredIf.equals;
+  return false;
+}
+
+// A required field is satisfied by its own value OR, if it offers a skip
+// reason, by that reason being filled. This is the soft gate.
+function fieldSatisfied(f, values) {
+  if (!isRequired(f, values)) return true;
+  if (values[f.key]) return true;
+  if (f.skipReasonKey) {
+    const r = values[f.skipReasonKey];
+    if (r && String(r).trim()) return true;
+  }
+  return false;
+}
 
 // Downscale a captured photo so uploads are fast and small (~200–400 KB from a
 // phone camera). Returns a JPEG data URL; falls back to the original on any
@@ -162,14 +199,13 @@ export default function IncidentFormWizard() {
 
     SECTIONS.forEach((s) => {
       if (s.id === "gates" || s.id === "identity") return;
-      const visible = s.types === null || s.types.some((t) => selectedKeys.includes(t));
-      if (!visible) return;
-      out.push({ kind: "group", title: s.title, fields: s.fields, sectionId: s.id });
+      if (!sectionVisible(s, values, selectedKeys)) return;
+      out.push({ kind: "group", title: s.title, subtitle: s.subtitle, fields: s.fields, sectionId: s.id });
     });
 
     out.push({ kind: "review" });
     return out;
-  }, [types, gatesSection, identitySection]);
+  }, [types, values, gatesSection, identitySection]);
 
   const current = steps[Math.min(step, steps.length - 1)];
   const pct = Math.round(((step + 1) / steps.length) * 100);
@@ -182,7 +218,7 @@ export default function IncidentFormWizard() {
     if (current.kind === "gate") return !values[current.field.key];
     if (current.kind === "types") return types.length === 0;
     if (current.kind === "group") {
-      return current.fields.some((f) => f.required && !values[f.key]);
+      return current.fields.some((f) => !fieldSatisfied(f, values));
     }
     return false;
   }, [current, values, types]);
@@ -242,8 +278,8 @@ export default function IncidentFormWizard() {
         </p>
         <p className="mt-4 text-sm text-gray-600">
           {values._tier === 1
-            ? "Safety has been notified and will contact you shortly. Stay where you are if it is safe to do so."
-            : "Safety will review this and reach out if they need anything further."}
+            ? "Safety has this now and will contact you shortly. Stay where you are if it is safe to do so. You do not need to text it separately."
+            : "Safety will pick this up and reach out if they need anything. No need to text or call unless something changes."}
         </p>
         {values._photoFailures ? (
           <p className="mt-4 text-sm text-amber-700">
@@ -285,6 +321,7 @@ export default function IncidentFormWizard() {
         {current?.kind === "group" && (
           <GroupScreen
             title={current.title}
+            subtitle={current.subtitle}
             fields={current.fields}
             values={values}
             set={set}
@@ -393,11 +430,11 @@ function TypesScreen({ types, setTypes }) {
   );
 }
 
-function GroupScreen({ title, fields, values, set, sectionId, selectedTypes }) {
+function GroupScreen({ title, subtitle, fields, values, set, sectionId, selectedTypes }) {
   // Surface the paper checklist alongside the photo step — same guidance the
   // drivers already have, at the moment they need it.
   const checklist =
-    sectionId === "media"
+    sectionId === "photosCore"
       ? selectedTypes.some((t) => t.startsWith("Accident"))
         ? CHECKLISTS.accident
         : CHECKLISTS.propertyDamage
@@ -406,34 +443,69 @@ function GroupScreen({ title, fields, values, set, sectionId, selectedTypes }) {
   return (
     <div>
       <h1 className="text-xl font-medium">{title}</h1>
+      {subtitle && (
+        <p className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">
+          {subtitle}
+        </p>
+      )}
       {checklist && (
         <a
           href={checklist}
           target="_blank"
           rel="noreferrer"
-          className="mt-2 inline-block text-sm text-blue-700 underline"
+          className="mt-3 inline-block text-sm text-blue-700 underline"
         >
           Open the printed checklist
         </a>
       )}
       <div className="mt-5 flex flex-col gap-5">
         {fields.map((f) => (
-          <Field key={f.key} field={f} value={values[f.key]} set={set} />
+          <Field key={f.key} field={f} values={values} set={set} />
         ))}
       </div>
     </div>
   );
 }
 
-function Field({ field, value, set }) {
+function Field({ field, values, set }) {
   const base = "w-full rounded border border-gray-300 px-3 py-3 text-base";
+  const value = values[field.key];
+  const required = isRequired(field, values);
+
+  // hideUnlessRequired: an item that doesn't apply right now disappears rather
+  // than sitting there as noise.
+  if (field.hideUnlessRequired && !required) return null;
+
+  const labelEl = (
+    <span className="mb-1 block text-sm font-medium">
+      {field.label}
+      {required && <span className="text-red-600"> *</span>}
+    </span>
+  );
+
+  // Soft gate: a required-but-empty item that offers a skip reason shows a
+  // "why not?" box. Filling the box satisfies the item (see fieldSatisfied).
+  const skipBox =
+    required && !value && field.skipReasonKey ? (
+      <div className="mt-2">
+        <span className="mb-1 block text-xs text-gray-600">
+          Can&apos;t get this one? Tell us why
+        </span>
+        <input
+          type="text"
+          value={values[field.skipReasonKey] || ""}
+          onChange={(e) => set(field.skipReasonKey, e.target.value)}
+          className={base}
+        />
+      </div>
+    ) : null;
 
   // Photo fields capture the image instead of asking whether one was taken.
   // capture="environment" opens the rear camera directly on Android.
   if (field.type === "photo") {
     return (
       <label className="block">
-        <span className="mb-1 block text-sm font-medium">{field.label}</span>
+        {labelEl}
         {field.hint && <span className="mb-2 block text-xs text-gray-600">{field.hint}</span>}
         <input
           type="file"
@@ -448,6 +520,7 @@ function Field({ field, value, set }) {
           className={base}
         />
         {value && <span className="mt-1 block text-xs text-green-700">Photo attached</span>}
+        {skipBox}
       </label>
     );
   }
@@ -456,16 +529,14 @@ function Field({ field, value, set }) {
     const opts = field.key === "state" ? US_STATES : field.options || [];
     return (
       <label className="block">
-        <span className="mb-1 block text-sm font-medium">
-          {field.label}
-          {field.required && <span className="text-red-600"> *</span>}
-        </span>
+        {labelEl}
         <select value={value || ""} onChange={(e) => set(field.key, e.target.value)} className={base}>
           <option value="">Choose…</option>
           {opts.map((o) => (
             <option key={o} value={o}>{o}</option>
           ))}
         </select>
+        {skipBox}
       </label>
     );
   }
@@ -473,10 +544,7 @@ function Field({ field, value, set }) {
   if (field.type === "textarea") {
     return (
       <label className="block">
-        <span className="mb-1 block text-sm font-medium">
-          {field.label}
-          {field.required && <span className="text-red-600"> *</span>}
-        </span>
+        {labelEl}
         <textarea
           rows={5}
           value={value || ""}
@@ -484,22 +552,21 @@ function Field({ field, value, set }) {
           className={base}
           placeholder="You can use the microphone on your keyboard instead of typing."
         />
+        {skipBox}
       </label>
     );
   }
 
   return (
     <label className="block">
-      <span className="mb-1 block text-sm font-medium">
-        {field.label}
-        {field.required && <span className="text-red-600"> *</span>}
-      </span>
+      {labelEl}
       <input
         type={field.type === "date" ? "date" : field.type === "time" ? "time" : "text"}
         value={value || ""}
         onChange={(e) => set(field.key, e.target.value)}
         className={base}
       />
+      {skipBox}
     </label>
   );
 }

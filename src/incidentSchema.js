@@ -74,6 +74,7 @@ export const SECTIONS = [
       { key: "truckDrivable", label: "Is the truck safe to drive right now?", type: "select", options: YNU, required: true },
       { key: "towRequired", label: "Does anything need to be towed?", type: "select", options: YNU, required: true },
       { key: "vehicleStuck", label: "Are you stuck?", type: "select", options: YNU, required: true },
+      { key: "freightDamaged", label: "Was the load damaged?", type: "select", options: YNU, required: true },
       // the override
       { key: "driverRequestsContact", label: "Do you need someone to call you right now?", type: "select", options: YN, required: true },
     ],
@@ -127,15 +128,75 @@ export const SECTIONS = [
       { key: "towCompany", label: "Tow company / details", type: "text" },
     ],
   },
+  // --- Photos: shown when there is anything to photograph --------------------
   {
-    id: "media",
-    title: "Photos",
-    types: ["accident", "vehicleDamage", "propertyDamage"],
+    id: "photosCore",
+    title: "Photos — the basics",
+    subtitle: "Make sure it is safe before taking any pictures.",
+    types: ["accident", "vehicleDamage", "propertyDamage", "tow"],
     fields: [
-      { key: "photoScene", label: "Wide shot of the whole scene", type: "photo", hint: "Stand back far enough to show everything involved and the road." },
-      { key: "photoOurEquipment", label: "Our truck and trailer", type: "photo", hint: "Multiple angles. Include the damage and the unit number." },
-      { key: "photoOtherProperty", label: "The other vehicle or property", type: "photo", hint: "All sides, not just the damage." },
-      { key: "reportCardNumber", label: "Accident report card or number", type: "text" },
+      { key: "photoScene", label: "Wide shot of the whole scene", type: "photo", hint: "Stand back far enough to show everything involved and the road.", required: true, skipReasonKey: "photoSceneSkipped" },
+      { key: "photoOurEquipment", label: "Close-ups of damage to our equipment", type: "photo", hint: "Include the unit number in at least one shot.", required: true, skipReasonKey: "photoOurEquipmentSkipped" },
+      { key: "photoOtherProperty", label: "Damage to the other vehicle or property", type: "photo", hint: "All sides, not just the damaged area.", requiredIf: { key: "otherPartyInvolved", equals: "Yes" }, skipReasonKey: "photoOtherPropertySkipped" },
+    ],
+  },
+  // --- Only when another vehicle is actually involved ------------------------
+  {
+    id: "otherDriver",
+    title: "The other driver",
+    subtitle: "Never argue with the other party. It is what it is regardless of fault — we work it out on the back end.",
+    types: ["accident", "vehicleDamage", "propertyDamage"],
+    showIf: { key: "otherVehicleInvolved", equals: "Yes" },
+    fields: [
+      { key: "photoOtherId", label: "Photo of the other driver's ID", type: "photo", required: true, skipReasonKey: "photoOtherIdSkipped" },
+      { key: "photoOtherInsurance", label: "Photo of their insurance card", type: "photo", required: true, skipReasonKey: "photoOtherInsuranceSkipped" },
+      { key: "otherDriverPhone", label: "Their phone number", type: "text", required: true, skipReasonKey: "otherDriverPhoneSkipped" },
+      { key: "gaveOurInfo", label: "Did they ask for your license and insurance? If so, did you provide it?", type: "select", options: ["Yes, provided it", "They did not ask", "No"] },
+    ],
+  },
+  // --- Only when a citation was issued --------------------------------------
+  {
+    id: "citation",
+    title: "The ticket",
+    types: null,
+    showIf: { key: "citationIssued", equals: "Yes" },
+    fields: [
+      { key: "photoTicket", label: "Photo of the ticket", type: "photo", required: true, skipReasonKey: "photoTicketSkipped" },
+      { key: "ticketWho", label: "Who received it?", type: "text", required: true },
+    ],
+  },
+  // --- Only when police attended --------------------------------------------
+  {
+    id: "policeDetail",
+    title: "Police",
+    types: null,
+    showIf: { key: "policeOnScene", equals: "Yes" },
+    fields: [
+      { key: "photoPoliceReport", label: "Photo of the report, info exchange page, or the officer's card", type: "photo", hint: "Whatever they hand you. The crash report number is the important part.", required: true, skipReasonKey: "photoPoliceReportSkipped" },
+      { key: "reportCardNumber", label: "Crash report number", type: "text" },
+      { key: "officer", label: "Officer name and badge number", type: "text" },
+      { key: "police", label: "Post, station, or city", type: "text" },
+    ],
+  },
+  // --- Only when freight was damaged ----------------------------------------
+  {
+    id: "freight",
+    title: "Freight",
+    types: null,
+    showIf: { key: "freightDamaged", equals: "Yes" },
+    fields: [
+      { key: "photoLoadWide", label: "The entire load in the van or on the trailer", type: "photo", required: true, skipReasonKey: "photoLoadWideSkipped" },
+      { key: "photoLoadDamage", label: "Close-ups of the damaged freight", type: "photo", required: true, skipReasonKey: "photoLoadDamageSkipped" },
+    ],
+  },
+  // --- Facility contact, from the property damage checklist ------------------
+  {
+    id: "facilityContact",
+    title: "Facility contact",
+    types: ["propertyDamage"],
+    fields: [
+      { key: "customerContactName", label: "Name of someone at the facility", type: "text", required: true, skipReasonKey: "customerContactSkipped" },
+      { key: "customerContactPhone", label: "Their phone number", type: "text" },
     ],
   },
   {
@@ -172,7 +233,6 @@ export const SECTIONS = [
     title: "Misc",
     types: null,
     fields: [
-      { key: "freightAffected", label: "Freight affected?", type: "select", options: YESNO },
       { key: "dispatchNotified", label: "Has dispatch been notified?", type: "select", options: YESNO },
       { key: "breakdownsNotified", label: "Has breakdowns been notified?", type: "select", options: YESNO },
       { key: "notes", label: "Notes", type: "textarea" },
