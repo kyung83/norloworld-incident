@@ -194,6 +194,7 @@ async function uploadPhoto(slot, dataUrl, ctx, timeoutMs = 45000) {
         slot: SLOT_LABEL[slot] || slot,
         driverName: ctx.driverName || "",
         dateOfIncident: ctx.dateOfIncident || "",
+        sessionId: ctx.sessionId || "",
         dataUrl,
       }),
       redirect: "follow",
@@ -218,11 +219,20 @@ export default function IncidentFormWizard() {
   const [savedAt, setSavedAt] = useState(null);
   const [photoStatus, setPhotoStatus] = useState({}); // key -> uploading|done|failed
   const [photoData, setPhotoData] = useState({}); // key -> in-memory data URL (retry)
+  // One ID per submission. Photos upload into a Drive folder named by this ID
+  // (the case number doesn't exist until submit); the backend renames the folder
+  // to the case number at createIncident. Persisted in the draft so a driver who
+  // closes the tab and comes back keeps uploading into the same folder.
+  const [sessionId, setSessionId] = useState(
+    () => "S" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
+  );
 
   const valuesRef = useRef(values);
   valuesRef.current = values;
   const photoDataRef = useRef(photoData);
   photoDataRef.current = photoData;
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
 
   // --- draft restore -------------------------------------------------------
   useEffect(() => {
@@ -240,6 +250,7 @@ export default function IncidentFormWizard() {
       }
       if (d.types) setTypes(d.types);
       if (typeof d.step === "number") setStep(d.step);
+      if (d.sessionId) setSessionId(d.sessionId);
     } catch {
       // corrupt draft is not worth blocking the form over
     }
@@ -250,10 +261,10 @@ export default function IncidentFormWizard() {
     try {
       // Photo image data is never persisted (keeps the draft small); their
       // Drive URLs live in `values` and are restored above.
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ values, types, step }));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ values, types, step, sessionId }));
       setSavedAt(Date.now());
     } catch {}
-  }, [values, types, step]);
+  }, [values, types, step, sessionId]);
 
   const set = useCallback((key, val) => {
     setValues((v) => ({ ...v, [key]: val }));
@@ -266,6 +277,7 @@ export default function IncidentFormWizard() {
       const ctx = {
         driverName: valuesRef.current.driverName,
         dateOfIncident: valuesRef.current.dateOfIncident,
+        sessionId: sessionIdRef.current,
       };
       const url = await uploadPhoto(fieldKey, dataUrl, ctx);
       setValues((v) => ({ ...v, [fieldKey]: url }));
@@ -380,6 +392,7 @@ export default function IncidentFormWizard() {
     const payload = {
       ...values,
       incidentTypes: types,
+      sessionId,
       submittedAt: new Date().toISOString(),
       notApplicable: summary.notApplicable,
       answeredNo: summary.answeredNo,
