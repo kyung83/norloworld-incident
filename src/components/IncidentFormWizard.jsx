@@ -451,17 +451,12 @@ export default function IncidentFormWizard() {
         <div className="h-1 rounded bg-blue-600 transition-all" style={{ width: `${pct}%` }} />
       </div>
 
-      <CallBar />
-
       <div className="flex-1">
         {current?.kind === "gate" && (
           <GateScreen
             field={current.field}
             value={values[current.field.key]}
-            onPick={(v) => {
-              set(current.field.key, v);
-              setTimeout(() => setStep((s) => s + 1), 120);
-            }}
+            onPick={(v) => set(current.field.key, v)}
             banner={current.field.key === FIRST_GATE ? gatesSection?.subtitle : null}
           />
         )}
@@ -529,6 +524,8 @@ export default function IncidentFormWizard() {
 
       {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
       {savedAt && <p className="mt-3 text-xs text-gray-500">Saved — safe to close and come back</p>}
+
+      <CallBar />
     </div>
   );
 }
@@ -958,16 +955,16 @@ function CallBar() {
     return (
       <button
         onClick={() => setConfirming(true)}
-        className="mb-4 block w-full rounded border border-red-300 bg-red-50 py-3 text-center text-sm font-medium text-red-800"
+        className="mt-4 block w-full rounded border border-red-300 bg-red-50 py-3 text-center text-sm font-medium text-red-800"
       >
-        Call safety now
+        Call safety
       </button>
     );
   }
 
   return (
-    <div className="mb-4 rounded border border-red-300 bg-red-50 p-4">
-      <p className="text-sm font-medium text-red-800">Call the safety line?</p>
+    <div className="mt-4 rounded border border-red-300 bg-red-50 p-4">
+      <p className="text-sm font-medium text-red-800">Call safety?</p>
       <p className="mt-1 text-xs text-red-700">
         Your report is saved. You can come back and finish it after the call.
       </p>
