@@ -27,7 +27,7 @@ A standalone, mobile-first **driver incident-reporting web app**, split off from
 - **Deploy loop:** edit → `git commit` → `git push origin main` → GitHub Actions builds + deploys → **CDN lag ~1 min** → hard-refresh (Ctrl+Shift+R) or add a `?cachebust=x` query param to see it.
 - **Watch a deploy:** `gh run list --limit 1 --json databaseId --jq '.[0].databaseId'` then `gh run watch <id> --exit-status`.
 - **Verify what actually deployed** (bypass CDN cache) by fetching the bundle with `cache: 'no-store'` in the in-app browser: read `/norloworld-incident/index.html?bust=…` → grab the `assets/index-*.js` name → fetch it and grep for expected strings.
-- **Jump to any wizard screen** for testing by injecting a draft into `localStorage['norlo-incident-draft-v1']` = `{ values, types, step }` then reloading. Clear it with `localStorage.removeItem(...)` when done.
+- **Jump to any wizard screen** for testing by injecting a draft into `localStorage['norlo-incident-draft-v1']` = `{ values, types, step, sessionId }` then reloading. Clear it with `localStorage.removeItem(...)` when done. (`sessionId` names the photo folder — see patch 11.)
 
 ---
 
@@ -56,11 +56,12 @@ A standalone, mobile-first **driver incident-reporting web app**, split off from
 
 ### Backend — **Google Apps Script, NOT in this repo**
 - Working copy: **`C:\Users\bfedewa\Downloads\incident-api-v2.gs`** (paste this into the Apps Script editor). `incident-api.gs` is the older v1 — superseded.
-- Deployed as a Web App; its `/exec` URL is what's in `config.js` `ENDPOINT`.
+- The Apps Script project is **container-bound to the "Incident Report Updated" workbook** (Extensions → Apps Script opens it). It now also holds a **2nd file, `incident-workbook-tools.gs`**, for the office-side sheet tools — see §7.
+- Deployed as a Web App; its `/exec` URL is what's in `config.js` `ENDPOINT`. **v2 was deployed this session ✅** (then edited again for the photo-folder fix — pending redeploy, see §4.1).
 - **Routes** (`doPost`): `createIncident`, `acknowledgeIncident`, `editIncident`, `savePhoto`. (`doGet`: `getIncidentForm`, `getIncidents`.)
 - Writes to Google Sheet **"Incident Report Updated"** (`SHEET_ID 1eet9u2Bb9m_8Aj-TFymxAwouK2z-O1AmAwt5KajVu0w`), tab **`IncidentsData`**.
 - `computeSeverity_` → Tier 1/2/3, with **fail-upward** (blank/Unknown/N/A gate → Tier 1). `laneFor_` → SAFETY / BREAKDOWN / BOTH (reads incidentTypes text for "someone else"; the old `propertyDamage` boolean is gone).
-- `savePhoto` → saves to Drive `Incident Photos / "YYYY-MM-DD DriverName" / …`, returns the URL. Folder is shared **once** on creation; the file upload happens **outside** the lock so photos upload in parallel.
+- `savePhoto` → saves to Drive `Incident Photos / "PENDING <sessionId>" / …`, returns the URL. The folder is named by the wizard's per-submission `sessionId` (the case number doesn't exist yet at upload time); `createIncident` renames it to `"<CaseNumber> - Driver"` at submit — see patch 11. Root folder is shared **once** on creation; the file upload happens **outside** the lock so photos upload in parallel.
 - **Case number** (`nextCaseNumber_`): `MMDDYY` (of the incident) + a **running sequence that counts per year** (continues across days/months, resets Jan 1). 2-digit minimum, auto-expands (100→3 digits). Uses a header lookup for the "Case Number" column; runs under a `LockService` lock with the append.
 - **Columns are header-addressed** (`colFor_` / `setByHeader_`) after the column-reorder patch, so the sheet can be reordered freely. Photos are written **inline** from the payload (our flow has no `savePhotoUrls`).
 - `runSelfTest()` validates tier logic + sheet connection + column lookups. Flags: `DRY_RUN: true`, `SMS_ENABLED: false`, `BREAKDOWN_SPAWN: false` (rows land, no phones ring yet).
@@ -69,13 +70,10 @@ A standalone, mobile-first **driver incident-reporting web app**, split off from
 
 ## 4. OUTSTANDING — do these next
 
-1. **Deploy the backend (biggest item).** All backend work is in `Downloads\incident-api-v2.gs` but **not yet deployed**. Steps:
-   - Paste it into the incident Apps Script project.
-   - Set row 1 of `IncidentsData` to the **28-column header row** below (⚠️ **em dashes** in the four photo headers, not hyphens).
-   - Delete the old test rows (they won't match the new order). Hide columns **AA** and **AB**.
-   - Run **`runSelfTest`** — expect tier PASSes + a "Column lookups" section all PASS.
-   - **Deploy → Manage deployments → ✏️ (edit existing) → New version** (approve the Drive re-authorization). Editing the existing deployment keeps the same `/exec` URL — do **not** create a new deployment.
-   - Submit one real test and confirm every value lands in the right column.
+1. **Backend redeploy (photo-folder fix pending).** `incident-api-v2.gs` was **deployed this session ✅** (28-col header set, `runSelfTest` passed, deployment edited in place — same `/exec`). It has **since been edited** for the photo-folder-collision fix (patch 11) and is **not yet redeployed**. To ship it:
+   - Paste the current `Downloads\incident-api-v2.gs`, run **`runSelfTest`** (expect all PASS).
+   - **Deploy → Manage deployments → ✏️ (edit existing) → New version** (approve re-auth). Editing the existing deployment keeps the same `/exec` — do **not** create a new deployment.
+   - Then: delete the old `2026-08-02 Steve-Stinky` test photo folder and run one clean end-to-end submit — confirm the new folder is named `MMDDYY## - Driver-Name` (two submits from the same test driver on the same day proves the collision is fixed).
 2. **Real safety phone number(s).** CallBar dials the temp test number `+19894297145`. Replace with the real driver/safety line (option 6, printed on the checklists). If two numbers, turn the single bar into two buttons.
 3. **Test 4 (real device):** photo upload failing on one bar of signal → Retry without re-shooting → submit stays disabled while uploading. Only validatable on a real phone; it's the pre-driver gate.
 4. **Eleos webview:** confirm `tel:` links actually dial from inside Eleos (it doesn't always behave like a browser).
@@ -112,5 +110,25 @@ The four photo headers use an **em dash (—)**: `Photo — Scene`, `Photo — O
 8. **Upload smoothness** — folder shared once (not per photo), upload outside the lock, 45s timeout, one auto-retry, JPEG 0.6 — *backend perf part pending deploy*.
 9. **Column reorder + header lookups** — Case Number → col A, `colFor_`/`setByHeader_`, self-test column check; photos kept inline (our flow) — *backend, pending deploy*.
 10. **Review screen + call bar** — grouped/labeled review, call bar moved above content, confirm-first, dials `+19894297145`.
+11. **Photo folder collision fix** — a driver with two incidents on one day no longer lands both photo sets in the same folder. The wizard mints one `sessionId` per submission (persisted in the draft, restored via `setSessionId`, threaded through a `sessionIdRef` so the upload callback never uses a stale ID), sends it with every `savePhoto` and in the `createIncident` payload. Backend: `incidentPhotoFolder_(sessionId, dateStr, driver)` names the upload folder `PENDING <id>`; `incidentPhotoFolderFinal_(p, caseNumber)` renames it to `"<CaseNumber> - Driver"` inside the lock right after `nextCaseNumber_` (legacy date+driver fallback kept for an old cached front end). **Frontend deployed (commit `b2dd251`); backend edited, pending redeploy (§4.1).** Abandoned forms leave `PENDING S…` folders on purpose (evidence survives) — worth a monthly glance or an eventual >30-day cleanup.
 
 > Note: several patches arrive from a **parallel "Accident reporting system" chat** and are sometimes written against a slightly different codebase (dark theme, or a `savePhotoUrls` backend flow we don't have). Always reconcile to *this* repo's actual state before applying, and flag divergences.
+
+---
+
+## 7. Office-side dashboard — sheet-native (NEW this session)
+
+Riley/Mark/Spencer work incidents **inside the "Incident Report Updated" workbook**, not a separate web app. Decided 2026-08-04: go sheet-native first (zero real incidents yet; don't over-build). A React dashboard (a **new** repo) is deferred until ~20 real incidents show what's actually wanted. What a web app would add later: click-to-call (impossible in a sheet — no `tel:` links), enforced append-only, photo thumbnails in the grid.
+
+Delivered as paste-in files in `Downloads` (**not yet installed/run — pending**):
+- **`incident-workbook-tools.gs`** — add as a **2nd file** in the incident Apps Script project (container-bound to the workbook, shares one global scope with `incident-api.gs`). Reuses `incident-api.gs`'s `rowForCaseNumber_`; deliberately does **not** reuse `colFor_`/`setByHeader_` (their execution-global `_headerCache` isn't sheet-keyed → wrong columns on this tool's multi-tab reads). `incident-api.gs` has no `onOpen`/`onEdit`, so the triggers here are the only ones — merge if that ever changes.
+- **`incident-workbook-tools-SETUP.md`** — install + daily use + test checklist.
+
+Adds a **🛡 Safety Incident** menu:
+- **Set up tabs (run once)** — creates an append-only **`IncidentUpdates`** tab, a live **`Queue`** QUERY tab (open incidents, Tier 1 first, then newest), and **Closed By / Closed At / Closing Summary** columns on `IncidentsData`.
+- **Log update** — append-only entry (category dropdown + text + optional link), auto-stamped with the **real editor email** via `Session.getActiveUser().getEmail()` (works because it's container-bound + everyone's `@norloworld.com` — honest identity the web-app deployment couldn't give).
+- **Close & email** — required closing summary → builds a PDF of the record + full update log → emails `safety@norloworld.com` → files the PDF to the incident's Drive folder → sets Status = Closed. Replaces the manual File → Email → PDF ritual.
+
+The `Queue` QUERY uses **column letters** (`A`=Case Number, `M`=Tier, `P`=Status …) — correct for the current 28-col A→AB order; if columns are reordered, update that formula (the menu actions are header-addressed and reorder-safe).
+
+**⚠️ Divergence flagged:** `kyung83/norloworld-dashboard`'s repo description says "incidents table with filters," but its actual code (main branch) is the **live Coaching / CSA-violations dashboard** on a *different* Apps Script endpoint. Do **not** build incident features into it. A future incident web app should be its own new repo pointed at the incident `/exec`.
