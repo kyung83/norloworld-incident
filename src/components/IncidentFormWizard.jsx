@@ -181,7 +181,34 @@ async function downscaleImage(file, maxEdge = 1600, quality = 0.6) {
   }
 }
 
-async function uploadPhoto(slot, dataUrl, ctx, timeoutMs = 45000) {
+// Cap how many photo uploads run at once. On weak cell signal, firing all ten
+// photos in parallel makes them starve each other for bandwidth and the tail
+// times out; a small concurrency limit lets each finish quickly, so more land.
+// Drop to 2 if the tail still fails on one bar.
+const UPLOAD_CONCURRENCY = 3;
+
+function makeLimiter(max) {
+  let active = 0;
+  const queue = [];
+  const pump = () => {
+    if (active >= max || queue.length === 0) return;
+    active++;
+    const { fn, resolve, reject } = queue.shift();
+    Promise.resolve().then(fn).then(resolve, reject).finally(() => {
+      active--;
+      pump();
+    });
+  };
+  return (fn) =>
+    new Promise((resolve, reject) => {
+      queue.push({ fn, resolve, reject });
+      pump();
+    });
+}
+
+const uploadLimiter = makeLimiter(UPLOAD_CONCURRENCY);
+
+async function uploadPhoto(slot, dataUrl, ctx, timeoutMs = 60000) {
   // Bound the request so a stalled upload on poor signal fails fast (→ Retry)
   // instead of hanging forever.
   const ctrl = new AbortController();
@@ -279,13 +306,17 @@ export default function IncidentFormWizard() {
         dateOfIncident: valuesRef.current.dateOfIncident,
         sessionId: sessionIdRef.current,
       };
-      const url = await uploadPhoto(fieldKey, dataUrl, ctx);
+      const url = await uploadLimiter(() => uploadPhoto(fieldKey, dataUrl, ctx));
       setValues((v) => ({ ...v, [fieldKey]: url }));
       setPhotoStatus((s) => ({ ...s, [fieldKey]: "done" }));
     } catch {
-      // One automatic retry smooths over a transient blip before we ask the
-      // driver to tap Retry.
-      if (attempt < 1) return doUpload(fieldKey, dataUrl, attempt + 1);
+      // A few automatic retries with backoff smooth over the drops and timeouts
+      // that are normal on one bar of signal, before we ask the driver to tap
+      // Retry. The in-memory image is reused — never a re-shoot.
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        return doUpload(fieldKey, dataUrl, attempt + 1);
+      }
       setPhotoStatus((s) => ({ ...s, [fieldKey]: "failed" }));
     }
   }, []);
