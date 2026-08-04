@@ -57,7 +57,7 @@ A standalone, mobile-first **driver incident-reporting web app**, split off from
 ### Backend — **Google Apps Script, NOT in this repo**
 - Working copy: **`C:\Users\bfedewa\Downloads\incident-api-v2.gs`** (paste this into the Apps Script editor). `incident-api.gs` is the older v1 — superseded.
 - The Apps Script project is **container-bound to the "Incident Report Updated" workbook** (Extensions → Apps Script opens it). It now also holds a **2nd file, `incident-workbook-tools.gs`**, for the office-side sheet tools — see §7.
-- Deployed as a Web App; its `/exec` URL is what's in `config.js` `ENDPOINT`. **v2 was deployed this session ✅** (then edited again for the photo-folder fix — pending redeploy, see §4.1).
+- Deployed as a Web App; its `/exec` URL is what's in `config.js` `ENDPOINT`. **v2 incl. the photo-folder fix (patch 11) is deployed ✅** — `runSelfTest` 24/24, deployment edited in place (same `/exec`).
 - **Routes** (`doPost`): `createIncident`, `acknowledgeIncident`, `editIncident`, `savePhoto`. (`doGet`: `getIncidentForm`, `getIncidents`.)
 - Writes to Google Sheet **"Incident Report Updated"** (`SHEET_ID 1eet9u2Bb9m_8Aj-TFymxAwouK2z-O1AmAwt5KajVu0w`), tab **`IncidentsData`**.
 - `computeSeverity_` → Tier 1/2/3, with **fail-upward** (blank/Unknown/N/A gate → Tier 1). `laneFor_` → SAFETY / BREAKDOWN / BOTH (reads incidentTypes text for "someone else"; the old `propertyDamage` boolean is gone).
@@ -70,10 +70,7 @@ A standalone, mobile-first **driver incident-reporting web app**, split off from
 
 ## 4. OUTSTANDING — do these next
 
-1. **Backend redeploy (photo-folder fix pending).** `incident-api-v2.gs` was **deployed this session ✅** (28-col header set, `runSelfTest` passed, deployment edited in place — same `/exec`). It has **since been edited** for the photo-folder-collision fix (patch 11) and is **not yet redeployed**. To ship it:
-   - Paste the current `Downloads\incident-api-v2.gs`, run **`runSelfTest`** (expect all PASS).
-   - **Deploy → Manage deployments → ✏️ (edit existing) → New version** (approve re-auth). Editing the existing deployment keeps the same `/exec` — do **not** create a new deployment.
-   - Then: delete the old `2026-08-02 Steve-Stinky` test photo folder and run one clean end-to-end submit — confirm the new folder is named `MMDDYY## - Driver-Name` (two submits from the same test driver on the same day proves the collision is fixed).
+1. **Verify the photo-folder fix (backend redeployed ✅).** `incident-api-v2.gs` incl. patch 11 is deployed (`runSelfTest` 24/24, same `/exec`). Remaining is the end-to-end check: delete the old `2026-08-02 Steve-Stinky` test photo folder, then run one clean submit and confirm the new folder is named `MMDDYY## - Driver-Name`. **Two submits from the same test driver on the same day** is the real proof (that was the exact collision).
 2. **Real safety phone number(s).** CallBar dials the temp test number `+19894297145`. Replace with the real driver/safety line (option 6, printed on the checklists). If two numbers, turn the single bar into two buttons.
 3. **Test 4 (real device):** photo upload failing on one bar of signal → Retry without re-shooting → submit stays disabled while uploading. Only validatable on a real phone; it's the pre-driver gate.
 4. **Eleos webview:** confirm `tel:` links actually dial from inside Eleos (it doesn't always behave like a browser).
@@ -120,7 +117,7 @@ The four photo headers use an **em dash (—)**: `Photo — Scene`, `Photo — O
 
 Riley/Mark/Spencer work incidents **inside the "Incident Report Updated" workbook**, not a separate web app. Decided 2026-08-04: go sheet-native first (zero real incidents yet; don't over-build). A React dashboard (a **new** repo) is deferred until ~20 real incidents show what's actually wanted. What a web app would add later: click-to-call (impossible in a sheet — no `tel:` links), enforced append-only, photo thumbnails in the grid.
 
-Delivered as paste-in files in `Downloads` (**not yet installed/run — pending**):
+Delivered as paste-in files in `Downloads` (**installed ✅ — added as the 2nd file, saved, and "Set up tabs" run; `IncidentUpdates` + `Queue` + the Closed columns populated cleanly. Log update / Close & email not yet exercised against a test incident**):
 - **`incident-workbook-tools.gs`** — add as a **2nd file** in the incident Apps Script project (container-bound to the workbook, shares one global scope with `incident-api.gs`). Reuses `incident-api.gs`'s `rowForCaseNumber_`; deliberately does **not** reuse `colFor_`/`setByHeader_` (their execution-global `_headerCache` isn't sheet-keyed → wrong columns on this tool's multi-tab reads). `incident-api.gs` has no `onOpen`/`onEdit`, so the triggers here are the only ones — merge if that ever changes.
 - **`incident-workbook-tools-SETUP.md`** — install + daily use + test checklist.
 
