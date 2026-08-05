@@ -16,6 +16,7 @@
 
 export const INCIDENT_TYPES = [
   { key: "accident", label: "Accident (Moving vehicles)" },
+  { key: "animalStrike", label: "Animal strike (deer, etc.)" },
   { key: "injury", label: "Injury" },
   { key: "damageOurs", label: "Damage — our truck, trailer, or equipment" },
   { key: "damageTheirs", label: "Damage — someone else's property or vehicle" },
@@ -108,14 +109,13 @@ export const SECTIONS = [
     title: "What happened",
     types: ["accident"],
     fields: [
-      { key: "deerAnimal", label: "Deer or animal?", type: "select", options: YN },
       { key: "otherPartiesDetail", label: "Other parties involved — names and contact info", type: "textarea", requiredIf: { key: "otherPartyInvolved", equals: "Yes" } },
     ],
   },
   {
     id: "damageOurs",
     title: "Our equipment",
-    types: ["damageOurs"],
+    types: ["damageOurs", "animalStrike"],
     fields: [
       { key: "ourDamageWhat", label: "What is damaged?", type: "textarea", placeholder: "Tractor, trailer, tires, mirror, reefer unit…", required: true },
     ],
@@ -145,7 +145,7 @@ export const SECTIONS = [
     title: "Incident checklist",
     subtitle:
       "Make sure the environment is safe before taking any pictures. Never be argumentative with the other parties — it is what it is regardless of fault, and we work it out on the back end.",
-    types: ["accident", "damageOurs", "damageTheirs", "tow"],
+    types: ["accident", "damageOurs", "damageTheirs", "tow", "animalStrike"],
     rows: [
       // Always required. No three-button row, no N/A: a wide shot and pictures
       // of our own truck are possible at every incident, on any phone.
