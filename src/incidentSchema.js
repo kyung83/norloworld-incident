@@ -3,6 +3,10 @@
 // The form branches like an org chart: the driver picks one or more Incident
 // Types, and a section shows when its `types` match AND its `showIf` gate (if
 // any) holds. Sections with `types: null` and no showIf are always shown.
+// `alsoShowIf: { key, equals }` is an OR escape hatch: the section also shows
+// whenever that gate answer holds, regardless of type — used where a gate has
+// already established the need (e.g. anyoneInjured = Yes surfaces the injury
+// section even if the driver only checked Accident).
 //
 // `gates` are the always-asked questions that drive severity tiering — asked of
 // every driver on every submission, before the incident-type checkboxes.
@@ -98,6 +102,8 @@ export const SECTIONS = [
     id: "injury",
     title: "Injury",
     types: ["injury"],
+    alsoShowIf: { key: "anyoneInjured", equals: "Yes" }, // hurt → ask, even if only Accident was checked
+
     fields: [
       { key: "injuryType", label: "Type of injury", type: "text", required: true },
       { key: "medicalAttention", label: "Medical attention needed? What kind?", type: "text" },
@@ -108,6 +114,8 @@ export const SECTIONS = [
     id: "accident",
     title: "What happened",
     types: ["accident"],
+    alsoShowIf: { key: "otherPartyInvolved", equals: "Yes" }, // another party → collect their info on any type
+
     fields: [
       { key: "otherPartiesDetail", label: "Other parties involved — names and contact info", type: "textarea", requiredIf: { key: "otherPartyInvolved", equals: "Yes" } },
     ],
@@ -132,6 +140,8 @@ export const SECTIONS = [
     id: "tow",
     title: "Tow",
     types: ["tow"],
+    alsoShowIf: { key: "towRequired", equals: "Yes" }, // needs a tow → ask, even if Tow wasn't checked
+
     fields: [
       { key: "towCompany", label: "Tow company", type: "text" },
       { key: "towDestination", label: "Where is it going?", type: "text" },

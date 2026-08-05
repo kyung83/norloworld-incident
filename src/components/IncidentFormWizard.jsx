@@ -81,7 +81,12 @@ function keysFromTypes(types) {
 function sectionVisible(s, values, selectedKeys) {
   const typeOk = s.types === null || s.types.some((t) => selectedKeys.includes(t));
   const ifOk = !s.showIf || values[s.showIf.key] === s.showIf.equals;
-  return typeOk && ifOk;
+  if (typeOk && ifOk) return true;
+  // A gate can independently establish the need for a section, regardless of
+  // which incident type the driver checked — e.g. anyoneInjured drives the
+  // injury section even on an Accident-only report.
+  if (s.alsoShowIf && values[s.alsoShowIf.key] === s.alsoShowIf.equals) return true;
+  return false;
 }
 
 function isRequired(f, values) {
