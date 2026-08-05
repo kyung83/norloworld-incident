@@ -169,8 +169,8 @@ export const SECTIONS = [
         type: "alwaysRequired",
         label: "Pictures of the scene",
         fields: [
-          { key: "photoScene", label: "Wide shot of the incident scene", type: "photo", hint: "Stand back far enough to show everything involved and the road.", required: true },
-          { key: "photoOurEquipment", label: "Close-ups of damage to Northern equipment", type: "photo", hint: "Include the unit number in at least one shot.", required: true },
+          { key: "photoScene", label: "Wide shot of the incident scene", type: "photo", multiple: true, hint: "Stand back far enough to show everything involved and the road.", required: true },
+          { key: "photoOurEquipment", label: "Close-ups of damage to Northern equipment", type: "photo", multiple: true, hint: "One for each thing that's damaged. Include the unit number in at least one shot.", required: true },
         ],
       },
       // Locked: the gates already answered these.
@@ -206,7 +206,7 @@ export const SECTIONS = [
         answeredBy: "otherVehicleInvolved",
         revealOn: "Yes",
         fields: [
-          { key: "photoOtherVehicle", label: "Their vehicle — damaged area plus all other sides", type: "photo", hint: "All four sides. This is what protects us from damage claimed later.", required: true },
+          { key: "photoOtherVehicle", label: "Their vehicle — damaged area plus all other sides", type: "photo", multiple: true, hint: "All four sides — add a photo for each. This is what protects us from damage claimed later.", required: true },
         ],
       },
       // Asked: full three buttons.
@@ -239,7 +239,7 @@ export const SECTIONS = [
         revealOn: "Yes",
         naReasons: ["Owner not present", "Not safe to approach", "Vehicle left the scene", "Other — I'll explain"],
         fields: [
-          { key: "photoOtherProperty", label: "Close-ups of the damage", type: "photo", hint: "All sides, not just the damaged area.", required: true },
+          { key: "photoOtherProperty", label: "Close-ups of the damage", type: "photo", multiple: true, hint: "All sides, not just the damaged area.", required: true },
         ],
       },
       {
@@ -249,7 +249,7 @@ export const SECTIONS = [
         revealOn: "Yes",
         fields: [
           { key: "photoLoadWide", label: "The entire load in the van or on the trailer", type: "photo", required: true },
-          { key: "photoLoadDamage", label: "Close-ups of the damaged freight", type: "photo", required: true },
+          { key: "photoLoadDamage", label: "Close-ups of the damaged freight", type: "photo", multiple: true, required: true },
         ],
       },
       {

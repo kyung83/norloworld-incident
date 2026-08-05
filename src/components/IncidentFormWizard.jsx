@@ -60,6 +60,13 @@ const SLOT_LABEL = {
   photoLoadDamage: "load-damage",
 };
 
+// Replace one photo in a field's upload list, growing the list if needed.
+function setPhoto_(uploads, key, index, item) {
+  const list = [...(uploads[key] || [])];
+  list[index] = item;
+  return { ...uploads, [key]: list };
+}
+
 const CHECKLIST_SECTION = SECTIONS.find((s) => s.id === "checklist");
 const ALL_PHOTO_KEYS = CHECKLIST_SECTION
   ? CHECKLIST_SECTION.rows.flatMap((r) =>
@@ -101,9 +108,9 @@ function isRequired(f, values) {
 
 // A field is satisfied when: not required, OR a photo whose upload is done, OR
 // a non-photo with a non-empty value.
-function fieldOk(f, values, photoStatus) {
+function fieldOk(f, values, uploads) {
   if (!isRequired(f, values)) return true;
-  if (f.type === "photo") return photoStatus[f.key] === "done";
+  if (f.type === "photo") return (uploads[f.key] || []).some((p) => p.status === "done" && p.url);
   return !!(values[f.key] && String(values[f.key]).trim());
 }
 
@@ -134,12 +141,12 @@ function naComplete(row, values) {
   return true;
 }
 
-function fieldsOk(row, values, photoStatus) {
-  return (row.fields || []).every((f) => fieldOk(f, values, photoStatus));
+function fieldsOk(row, values, uploads) {
+  return (row.fields || []).every((f) => fieldOk(f, values, uploads));
 }
 
-function rowComplete(row, values, photoStatus) {
-  if (row.type === "alwaysRequired") return fieldsOk(row, values, photoStatus);
+function rowComplete(row, values, uploads) {
+  if (row.type === "alwaysRequired") return fieldsOk(row, values, uploads);
 
   const reveal = row.revealOn || "Yes";
   const ans = rowAnswer(row, values);
@@ -147,21 +154,21 @@ function rowComplete(row, values, photoStatus) {
   if (row.answeredBy) {
     // Locked to a gate. Nothing to do unless the gate revealed the row.
     if (ans !== reveal) return true;
-    if (fieldsOk(row, values, photoStatus)) return true;
+    if (fieldsOk(row, values, uploads)) return true;
     if (row.naReasons && naComplete(row, values)) return true; // couldn't-provide escape
     return false;
   }
 
   if (ans === "No") return true;
   if (ans === "N/A") return naComplete(row, values);
-  if (ans === reveal) return fieldsOk(row, values, photoStatus);
+  if (ans === reveal) return fieldsOk(row, values, uploads);
   return false; // unanswered
 }
 
-function checklistComplete(section, values, photoStatus, selectedKeys) {
+function checklistComplete(section, values, uploads, selectedKeys) {
   return section.rows
     .filter((r) => rowVisible(r, values, selectedKeys))
-    .every((r) => rowComplete(r, values, photoStatus));
+    .every((r) => rowComplete(r, values, uploads));
 }
 
 // Build the two sheet summaries + the count of vague "Other" N/A reasons.
@@ -283,8 +290,10 @@ export default function IncidentFormWizard() {
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
   const [savedAt, setSavedAt] = useState(null);
-  const [photoStatus, setPhotoStatus] = useState({}); // key -> uploading|done|failed
-  const [photoData, setPhotoData] = useState({}); // key -> in-memory data URL (retry)
+  // key -> [{ status: uploading|done|failed, url?, dataUrl? }]. A field can hold
+  // several photos (damage/scene) or one (documents). dataUrl is kept in memory
+  // so Retry never asks the driver to take the picture again.
+  const [uploads, setUploads] = useState({});
   // One ID per submission. Photos upload into a Drive folder named by this ID
   // (the case number doesn't exist until submit); the backend renames the folder
   // to the case number at createIncident. Persisted in the draft so a driver who
@@ -299,8 +308,8 @@ export default function IncidentFormWizard() {
 
   const valuesRef = useRef(values);
   valuesRef.current = values;
-  const photoDataRef = useRef(photoData);
-  photoDataRef.current = photoData;
+  const uploadsRef = useRef(uploads);
+  uploadsRef.current = uploads;
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
   // True the instant a submit succeeds — before any re-render — so the draft-
@@ -334,11 +343,13 @@ export default function IncidentFormWizard() {
     const d = pendingDraft;
     if (!d) return;
     setValues(d.values || {});
-    const ps = {};
+    const up = {};
     ALL_PHOTO_KEYS.forEach((k) => {
-      if (/^https?:/.test(String((d.values || {})[k] || ""))) ps[k] = "done";
+      const val = (d.values || {})[k];
+      const urls = (Array.isArray(val) ? val : [val]).filter((u) => /^https?:/.test(String(u || "")));
+      if (urls.length) up[k] = urls.map((url) => ({ status: "done", url })); // no dataUrl on resume — thumbnail shows "Uploaded"
     });
-    setPhotoStatus(ps);
+    setUploads(up);
     if (d.types) setTypes(d.types);
     if (typeof d.step === "number") setStep(d.step);
     if (d.sessionId) setSessionId(d.sessionId);
@@ -401,50 +412,89 @@ export default function IncidentFormWizard() {
     setValues((v) => ({ ...v, [key]: val }));
   }, []);
 
-  // --- photo upload state machine ------------------------------------------
-  const doUpload = useCallback(async (fieldKey, dataUrl, attempt = 0) => {
-    setPhotoStatus((s) => ({ ...s, [fieldKey]: "uploading" }));
+  // --- photo upload state machine (per photo) ------------------------------
+  // Mirror uploaded URLs into `values` whenever uploads change, so the payload
+  // and the draft carry them. Every photo field becomes an array of URLs.
+  useEffect(() => {
+    setValues((v) => {
+      let changed = false;
+      const next = { ...v };
+      for (const key in uploads) {
+        const urls = uploads[key].filter((p) => p.status === "done" && p.url).map((p) => p.url);
+        const cur = Array.isArray(next[key]) ? next[key] : next[key] ? [next[key]] : [];
+        if (urls.length !== cur.length || urls.some((u, i) => u !== cur[i])) {
+          next[key] = urls;
+          changed = true;
+        }
+      }
+      return changed ? next : v;
+    });
+  }, [uploads]);
+
+  // One upload, keeping the reliability machinery: already downscaled, run
+  // through the concurrency limiter with a 60s timeout + two backed-off retries.
+  const uploadOne = useCallback(async (key, index, dataUrl, attempt = 0) => {
+    setUploads((u) => setPhoto_(u, key, index, { status: "uploading", dataUrl }));
     try {
       const ctx = {
         driverName: valuesRef.current.driverName,
         dateOfIncident: valuesRef.current.dateOfIncident,
         sessionId: sessionIdRef.current,
       };
-      const url = await uploadLimiter(() => uploadPhoto(fieldKey, dataUrl, ctx));
-      setValues((v) => ({ ...v, [fieldKey]: url }));
-      setPhotoStatus((s) => ({ ...s, [fieldKey]: "done" }));
+      // Index the slot so the 2nd+ photo of a field lands under its own name in
+      // Drive rather than an identical one.
+      const slot = index > 0 ? `${key}-${index + 1}` : key;
+      const url = await uploadLimiter(() => uploadPhoto(slot, dataUrl, ctx));
+      setUploads((u) => setPhoto_(u, key, index, { status: "done", url, dataUrl }));
     } catch {
-      // A few automatic retries with backoff smooth over the drops and timeouts
-      // that are normal on one bar of signal, before we ask the driver to tap
-      // Retry. The in-memory image is reused — never a re-shoot.
       if (attempt < 2) {
         await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
-        return doUpload(fieldKey, dataUrl, attempt + 1);
+        return uploadOne(key, index, dataUrl, attempt + 1);
       }
-      setPhotoStatus((s) => ({ ...s, [fieldKey]: "failed" }));
+      setUploads((u) => setPhoto_(u, key, index, { status: "failed", dataUrl }));
     }
   }, []);
 
+  // Capture appends a photo and starts its upload; the thumbnail shows at once.
   const capturePhoto = useCallback(
-    async (fieldKey, file) => {
+    async (key, file) => {
+      setPendingDraft(null);
       const dataUrl = await downscaleImage(file);
-      setPhotoData((d) => ({ ...d, [fieldKey]: dataUrl }));
-      doUpload(fieldKey, dataUrl);
+      let index;
+      setUploads((u) => {
+        const list = [...(u[key] || [])];
+        index = list.length;
+        list.push({ status: "uploading", dataUrl });
+        return { ...u, [key]: list };
+      });
+      uploadOne(key, index, dataUrl);
     },
-    [doUpload]
+    [uploadOne]
   );
 
+  // Retry reuses the image already in memory — never a re-shoot.
   const retryPhoto = useCallback(
-    (fieldKey) => {
-      const dataUrl = photoDataRef.current[fieldKey];
-      if (dataUrl) doUpload(fieldKey, dataUrl);
+    (key, index) => {
+      const item = (uploadsRef.current[key] || [])[index];
+      if (item && item.dataUrl) uploadOne(key, index, item.dataUrl);
     },
-    [doUpload]
+    [uploadOne]
   );
 
-  const anyUploading = Object.values(photoStatus).some((s) => s === "uploading");
-  const uploadDone = Object.values(photoStatus).filter((s) => s === "done").length;
-  const uploadTracked = Object.keys(photoStatus).length;
+  // Drop a mistaken photo. The Drive file stays — this form doesn't delete
+  // evidence on a tap — but it no longer counts toward the field or the record.
+  const removePhoto = useCallback((key, index) => {
+    setUploads((u) => {
+      const list = [...(u[key] || [])];
+      list.splice(index, 1);
+      return { ...u, [key]: list };
+    });
+  }, []);
+
+  const allPhotos = Object.values(uploads).flat();
+  const anyUploading = allPhotos.some((p) => p.status === "uploading");
+  const uploadDone = allPhotos.filter((p) => p.status === "done").length;
+  const uploadTracked = allPhotos.length;
 
   // --- build the screen list ------------------------------------------------
   const gatesSection = SECTIONS.find((s) => s.id === "gates");
@@ -520,13 +570,13 @@ export default function IncidentFormWizard() {
     if (current.kind === "gate") return !values[current.field.key];
     if (current.kind === "types") return types.length === 0;
     if (current.kind === "group") {
-      return current.fields.some((f) => !fieldOk(f, values, photoStatus));
+      return current.fields.some((f) => !fieldOk(f, values, uploads));
     }
     if (current.kind === "checklist") {
-      return anyUploading || !checklistComplete(current.section, values, photoStatus, selectedKeys);
+      return anyUploading || !checklistComplete(current.section, values, uploads, selectedKeys);
     }
     return false;
-  }, [current, values, types, photoStatus, anyUploading, selectedKeys]);
+  }, [current, values, types, uploads, anyUploading, selectedKeys]);
 
   // --- submit ---------------------------------------------------------------
   async function submit() {
@@ -667,10 +717,10 @@ export default function IncidentFormWizard() {
             set={set}
             selectedTypes={types}
             selectedKeys={selectedKeys}
-            photoStatus={photoStatus}
-            photoData={photoData}
+            uploads={uploads}
             onCapture={capturePhoto}
             onRetry={retryPhoto}
+            onRemove={removePhoto}
             goToGate={goToGate}
           />
         )}
@@ -798,7 +848,7 @@ function GroupScreen({ title, subtitle, fields, values, set }) {
   );
 }
 
-function ChecklistScreen({ section, values, set, selectedTypes, selectedKeys, photoStatus, photoData, onCapture, onRetry, goToGate }) {
+function ChecklistScreen({ section, values, set, selectedTypes, selectedKeys, uploads, onCapture, onRetry, onRemove, goToGate }) {
   const checklistLink = selectedTypes.some((t) => t.startsWith("Accident"))
     ? CHECKLISTS.accident
     : selectedTypes.some((t) => t.toLowerCase().includes("someone else"))
@@ -825,10 +875,10 @@ function ChecklistScreen({ section, values, set, selectedTypes, selectedKeys, ph
             row={row}
             values={values}
             set={set}
-            photoStatus={photoStatus}
-            photoData={photoData}
+            uploads={uploads}
             onCapture={onCapture}
             onRetry={onRetry}
+            onRemove={onRemove}
             goToGate={goToGate}
           />
         ))}
@@ -837,9 +887,9 @@ function ChecklistScreen({ section, values, set, selectedTypes, selectedKeys, ph
   );
 }
 
-function ChecklistRow({ row, values, set, photoStatus, photoData, onCapture, onRetry, goToGate }) {
+function ChecklistRow({ row, values, set, uploads, onCapture, onRetry, onRemove, goToGate }) {
   const reveal = row.revealOn || "Yes";
-  const complete = rowComplete(row, values, photoStatus);
+  const complete = rowComplete(row, values, uploads);
   const border = complete ? "border-gray-200" : "border-amber-300";
 
   const renderFields = (fields) => (
@@ -849,10 +899,10 @@ function ChecklistRow({ row, values, set, photoStatus, photoData, onCapture, onR
           <PhotoField
             key={f.key}
             field={f}
-            status={photoStatus[f.key]}
-            hasData={!!photoData[f.key]}
+            list={uploads[f.key] || []}
             onCapture={onCapture}
             onRetry={onRetry}
+            onRemove={onRemove}
           />
         ) : (
           <Field key={f.key} field={f} values={values} set={set} forceRequired />
@@ -923,7 +973,7 @@ function ChecklistRow({ row, values, set, photoStatus, photoData, onCapture, onR
           </button>
         </div>
         {revealed && renderFields(row.fields)}
-        {revealed && row.naReasons && !fieldsOk(row, values, photoStatus) && (
+        {revealed && row.naReasons && !fieldsOk(row, values, uploads) && (
           <div className="mt-3">
             <p className="text-xs text-gray-600">Can&apos;t provide this? Choose a reason:</p>
             {renderNaReasons()}
@@ -960,7 +1010,10 @@ function ChecklistRow({ row, values, set, photoStatus, photoData, onCapture, onR
   );
 }
 
-function PhotoField({ field, status, hasData, onCapture, onRetry }) {
+function PhotoField({ field, list, onCapture, onRetry, onRemove }) {
+  const multiple = !!field.multiple;
+  const canAdd = multiple || list.length === 0; // single fields hide the button once taken
+
   return (
     <div>
       <span className="mb-1 block text-sm font-medium">
@@ -969,45 +1022,72 @@ function PhotoField({ field, status, hasData, onCapture, onRetry }) {
       </span>
       {field.hint && <span className="mb-2 block text-xs text-gray-600">{field.hint}</span>}
 
-      {status === "done" ? (
-        <div className="text-sm font-medium text-green-700">✓ Photo uploaded</div>
-      ) : status === "uploading" ? (
-        <div className="text-sm text-gray-600">Uploading…</div>
-      ) : status === "failed" ? (
-        <div>
-          <p className="text-sm font-medium text-red-700">Upload failed — your photo is still saved on this form.</p>
-          <button
-            type="button"
-            onClick={() => onRetry(field.key)}
-            className="mt-2 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white"
-          >
-            Retry upload
-          </button>
-          <label className="mt-2 block text-xs text-gray-600">
-            or take a different photo
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) onCapture(field.key, f);
-              }}
-              className={INPUT}
-            />
-          </label>
+      {list.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {list.map((p, i) => (
+            <div key={i} className="relative">
+              {p.dataUrl ? (
+                <img
+                  src={p.dataUrl}
+                  alt=""
+                  className={`h-20 w-20 rounded border-2 object-cover ${
+                    p.status === "failed"
+                      ? "border-red-400 opacity-60"
+                      : p.status === "uploading"
+                      ? "border-gray-300 opacity-60"
+                      : "border-green-500"
+                  }`}
+                />
+              ) : (
+                // Resumed draft: the image isn't in memory, but the upload is on file.
+                <div className="flex h-20 w-20 items-center justify-center rounded border-2 border-green-500 bg-green-50 text-center text-[10px] font-medium text-green-700">
+                  ✓ Uploaded
+                </div>
+              )}
+              {p.status === "uploading" && (
+                <span className="absolute inset-x-0 bottom-0 bg-gray-900/70 text-center text-[10px] text-white">
+                  sending…
+                </span>
+              )}
+              {p.status === "failed" && (
+                <button
+                  type="button"
+                  onClick={() => onRetry(field.key, i)}
+                  className="absolute inset-x-0 bottom-0 bg-red-600 text-[10px] font-medium text-white"
+                >
+                  retry
+                </button>
+              )}
+              {p.status === "done" && (
+                <button
+                  type="button"
+                  onClick={() => onRemove(field.key, i)}
+                  className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-gray-700 text-xs leading-none text-white"
+                  aria-label="Remove this photo"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          ))}
         </div>
-      ) : (
-        <input
-          type="file"
-          accept="image/*"
-          capture="environment"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) onCapture(field.key, f);
-          }}
-          className={INPUT}
-        />
+      )}
+
+      {canAdd && (
+        <label className="block cursor-pointer rounded border border-dashed border-gray-400 bg-gray-50 py-3 text-center text-sm text-gray-700">
+          {list.length === 0 ? "Take photo" : "Add another photo"}
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onCapture(field.key, f);
+              e.target.value = ""; // let the same file be picked again
+            }}
+          />
+        </label>
       )}
     </div>
   );
@@ -1088,9 +1168,13 @@ function ReviewScreen({ values, types, steps, onJump, onRestart }) {
       return acc;
     }, []);
 
-  const photoCount = Object.keys(values).filter(
-    (k) => k.startsWith("photo") && String(values[k]).startsWith("http")
-  ).length;
+  const photoCount = Object.keys(values)
+    .filter((k) => k.startsWith("photo"))
+    .reduce((n, k) => {
+      const v = values[k];
+      const arr = Array.isArray(v) ? v : [v];
+      return n + arr.filter((u) => /^https?:/.test(String(u || ""))).length;
+    }, 0);
 
   return (
     <div>
@@ -1134,6 +1218,10 @@ function ReviewScreen({ values, types, steps, onJump, onRestart }) {
 // A Drive URL is noise that tells a driver nothing — he knows he took the
 // picture; he needs to know it made it.
 function formatValue(key, value) {
+  if (Array.isArray(value)) {
+    const n = value.filter((u) => /^https?:/.test(String(u || ""))).length;
+    return n ? (n === 1 ? "Uploaded" : `${n} uploaded`) : "—";
+  }
   const s = String(value);
   if (s.startsWith("http")) return "Uploaded";
   if (s.length > 60) return s.slice(0, 57) + "…";

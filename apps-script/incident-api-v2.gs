@@ -300,11 +300,7 @@ function photoDateStr_(d) {
  * by session ID, then renames it — a fast metadata write.
  */
 function incidentPhotoFolderFinal_(p, caseNumber) {
-  var hasPhoto = false;
-  for (var k in p) {
-    if (k.indexOf('photo') === 0 && /^https?:/i.test(String(p[k] || ''))) { hasPhoto = true; break; }
-  }
-  if (!hasPhoto) return '';
+  if (!allPhotoUrls_(p).length) return '';
   try {
     var driver  = sanitizeName_(driverFullName_(p)) || 'Unknown';
     var dateStr = photoDateStr_(p.dateOfIncident);
@@ -506,7 +502,7 @@ function laneFor_(p, tier) {
   var damagedOurs = typesText.indexOf('our truck') > -1 ||
                     typesText.indexOf('our equipment') > -1 ||
                     String(p.ourDamageWhat || '').trim() !== '' ||
-                    /^https?:/i.test(String(p.photoOurEquipment || ''));
+                    photoCell_(p.photoOurEquipment).indexOf('http') === 0;
 
   var needsBreakdown = damagedOurs ||
                        no_(p.truckDrivable) ||
@@ -580,9 +576,9 @@ function createIncident(p) {
       '',                                                 // R  Claimed At
       pick_(p, 'notApplicable'),                          // S  Not applicable
       pick_(p, 'answeredNo'),                             // T  Answered no
-      pick_(p, 'photoScene'),                             // U  Photo — Scene
-      pick_(p, 'photoOurEquipment'),                      // V  Photo — Our Truck
-      pick_(p, 'photoOtherProperty'),                     // W  Photo — Other
+      photoCell_(p.photoScene),                           // U  Photo — Scene
+      photoCell_(p.photoOurEquipment),                    // V  Photo — Our Truck
+      photoCell_(p.photoOtherProperty),                   // W  Photo — Other
       photoFolderUrl,                                     // X  Photos — Folder
       '',                                                 // Y  Office Notes
       pick_(p, 'breakdownId'),                            // Z  Breakdown ID
@@ -821,6 +817,37 @@ function pick_(obj) {
     if (v !== undefined && v !== null && String(v).trim() !== '') return v;
   }
   return '';
+}
+
+/**
+ * A photo answer, which may now be several photos.
+ *
+ * One shot was never enough for the ones that matter: "close-ups of damage to
+ * Northern equipment" when three things are bent, or "their vehicle — all four
+ * sides", which literally asks for four. The wizard sends an array; older
+ * clients still send a single string.
+ *
+ * Newline-separated in the cell so each URL stays clickable in Sheets.
+ */
+function photoCell_(v) {
+  if (Array.isArray(v)) {
+    return v.filter(function (u) { return u && String(u).trim(); }).join('\n');
+  }
+  return v == null ? '' : String(v);
+}
+
+/** Every photo URL in the payload, flattened — arrays or single strings. */
+function allPhotoUrls_(p) {
+  var out = [];
+  for (var k in p) {
+    if (k.indexOf('photo') !== 0) continue;
+    var v = p[k];
+    var arr = Array.isArray(v) ? v : [v];
+    for (var i = 0; i < arr.length; i++) {
+      if (/^https?:/i.test(String(arr[i] || ''))) out.push(String(arr[i]));
+    }
+  }
+  return out;
 }
 
 /**
