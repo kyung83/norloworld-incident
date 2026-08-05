@@ -1,4 +1,11 @@
 /**
+ * ⚠️ DEPRECATED PROTOTYPE — DO NOT DEPLOY.
+ * Superseded by incident-api-v2.gs in this folder, which is the real, deployed
+ * backend (severity tiering, running case numbers, photo upload, writes to the
+ * IncidentsData tab of the "Incident Report Updated" workbook). This file is
+ * the original flat-"Submissions" stub, kept only for history; its
+ * SPREADSHEET_ID was never configured. See README.md.
+ *
  * Northern Logistics — Incident Report backend (Google Apps Script Web App)
  *
  * Receives submissions from the norloworld-incident web app and appends one
