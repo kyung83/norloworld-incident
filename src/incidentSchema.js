@@ -111,11 +111,13 @@ export const SECTIONS = [
     ],
   },
   {
-    id: "accident",
-    title: "What happened",
-    types: ["accident"],
-    alsoShowIf: { key: "otherPartyInvolved", equals: "Yes" }, // another party → collect their info on any type
-
+    id: "otherParties",
+    title: "Other parties involved",
+    // No incident-type box maps to this — it's gate-driven, so it appears exactly
+    // when there's another party (on any incident type), never as an empty
+    // section on a single-vehicle accident.
+    types: [],
+    alsoShowIf: { key: "otherPartyInvolved", equals: "Yes" },
     fields: [
       { key: "otherPartiesDetail", label: "Other parties involved — names and contact info", type: "textarea", requiredIf: { key: "otherPartyInvolved", equals: "Yes" } },
     ],
