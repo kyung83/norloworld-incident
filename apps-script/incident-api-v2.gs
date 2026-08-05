@@ -525,6 +525,10 @@ function createIncident(p) {
       JSON.stringify(p)                                   // AB Payload (hidden)
     ]);
     rowNum = sheet.getLastRow();
+    // Keep the case number as text. Sheets otherwise reads 08042601 as a number
+    // and drops the leading zero, breaking both the number people quote and the
+    // dashboard's MMDDYY month parsing.
+    sheet.getRange(rowNum, 1).setNumberFormat('@').setValue(caseNumber);
     } finally {
       lock.releaseLock();
     }
