@@ -48,10 +48,11 @@ in `incident-workbook-tools-SETUP.md`.
 
 ## Pending
 
-- **FIX 1b (case number stored as text)** is **not yet applied** to
-  `incident-api-v2.gs`: after `sheet.appendRow(...)`, force column A to text
-  (`sheet.getRange(rowNum, 1).setNumberFormat('@').setValue(caseNumber)`) so
-  leading zeros survive (`08042601`, not `8042601`). Needs a backend redeploy.
+- **FIX 1b (case number stored as text)** is now **applied** to
+  `incident-api-v2.gs` (column A forced to text after `appendRow`) — **needs a
+  backend redeploy** to take effect. Also do **FIX 1a** once by hand: in
+  `IncidentsData`, Format → Number → Plain text on column A, then retype the
+  existing damaged row's case number with its leading zero.
 
 > These copies are the source of truth. The parallel "Accident reporting system"
 > chat edits the loose copies in `Downloads/`; keep this folder synced from
