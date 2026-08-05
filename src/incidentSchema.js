@@ -3,10 +3,12 @@
 // The form branches like an org chart: the driver picks one or more Incident
 // Types, and a section shows when its `types` match AND its `showIf` gate (if
 // any) holds. Sections with `types: null` and no showIf are always shown.
-// `alsoShowIf: { key, equals }` is an OR escape hatch: the section also shows
-// whenever that gate answer holds, regardless of type — used where a gate has
-// already established the need (e.g. anyoneInjured = Yes surfaces the injury
-// section even if the driver only checked Accident).
+// `alsoShowIf` is an OR escape hatch: the section also shows whenever a gate
+// answer holds, regardless of type. It is one `{ key, equals }` condition or an
+// array of them (any match shows the section) — used where a gate has already
+// established the need (e.g. anyoneInjured = Yes surfaces the injury section
+// even if the driver only checked Accident; witnesses on otherPartyInvolved or
+// policeOnScene).
 //
 // `gates` are the always-asked questions that drive severity tiering — asked of
 // every driver on every submission, before the incident-type checkboxes.
@@ -268,6 +270,12 @@ export const SECTIONS = [
     id: "witnesses",
     title: "Witnesses",
     types: ["accident", "injury", "damageTheirs"],
+    // Also whenever another party or police are involved — a deer strike with a
+    // witness, or a stuck truck where police took a report, still needs one.
+    alsoShowIf: [
+      { key: "otherPartyInvolved", equals: "Yes" },
+      { key: "policeOnScene", equals: "Yes" },
+    ],
     fields: [
       { key: "witness1", label: "Witness 1 — name and number", type: "text" },
       { key: "witness2", label: "Witness 2 — name and number", type: "text" },

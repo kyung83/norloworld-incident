@@ -84,8 +84,12 @@ function sectionVisible(s, values, selectedKeys) {
   if (typeOk && ifOk) return true;
   // A gate can independently establish the need for a section, regardless of
   // which incident type the driver checked — e.g. anyoneInjured drives the
-  // injury section even on an Accident-only report.
-  if (s.alsoShowIf && values[s.alsoShowIf.key] === s.alsoShowIf.equals) return true;
+  // injury section even on an Accident-only report. alsoShowIf is one
+  // { key, equals } condition or an array of them; any match shows the section.
+  if (s.alsoShowIf) {
+    const conds = Array.isArray(s.alsoShowIf) ? s.alsoShowIf : [s.alsoShowIf];
+    if (conds.some((c) => values[c.key] === c.equals)) return true;
+  }
   return false;
 }
 
