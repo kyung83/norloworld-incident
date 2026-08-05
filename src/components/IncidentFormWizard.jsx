@@ -14,9 +14,10 @@ const DRAFT_KEY = "norlo-incident-draft-v1";
 // would put a previous incident's answers on today's report.
 const DRAFT_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6 hours
 const FIRST_GATE = "anyoneInjured";
-// Shown directly after the first gate (before identity), only when its showIf
-// holds (anyoneInjured === "Yes").
-const SECOND_GATE = "otherPartiesInjured";
+// Gates shown before the identity section, in order. Each still respects its own
+// showIf (otherPartiesInjured only when anyoneInjured === "Yes"); every other
+// gate comes after identity.
+const LEADING_GATES = [FIRST_GATE, "otherPartiesInjured", "pedestrianInvolved"];
 
 // "just now" / "3 minutes ago" / "2 hours ago" for the resume banner.
 function timeAgo(ts) {
@@ -412,21 +413,19 @@ export default function IncidentFormWizard() {
     // Gate-level showIf: skip a conditional gate until its condition holds.
     const gateVisible = (f) => !f.showIf || values[f.showIf.key] === f.showIf.equals;
 
-    const first = gateFields.find((f) => f.key === FIRST_GATE);
-    if (first) out.push({ kind: "gate", field: first });
-
-    // otherPartiesInjured sits right after the first gate, before identity, and
-    // only when anyoneInjured === "Yes".
-    const second = gateFields.find((f) => f.key === SECOND_GATE);
-    if (second && gateVisible(second)) out.push({ kind: "gate", field: second });
+    // Leading gates, in order, before identity — each still gated by its showIf.
+    LEADING_GATES.forEach((key) => {
+      const f = gateFields.find((g) => g.key === key);
+      if (f && gateVisible(f)) out.push({ kind: "gate", field: f });
+    });
 
     if (identitySection) {
       out.push({ kind: "group", title: identitySection.title, fields: identitySection.fields });
     }
 
-    // The remaining gates stay after identity.
+    // Every remaining gate stays after identity.
     gateFields
-      .filter((f) => f.key !== FIRST_GATE && f.key !== SECOND_GATE)
+      .filter((f) => !LEADING_GATES.includes(f.key))
       .filter(gateVisible)
       .forEach((f) => out.push({ kind: "gate", field: f }));
 

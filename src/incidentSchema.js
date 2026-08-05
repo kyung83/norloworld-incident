@@ -65,7 +65,7 @@ export const SECTIONS = [
     types: null, // ALWAYS shown — these drive severity tiering.
     fields: [
       { key: "anyoneInjured", label: "Are you or anyone in your truck hurt?", type: "select", options: YNU, required: true },
-      { key: "otherPartiesInjured", label: "Is anyone in the other vehicle hurt?", sublabel: "Or a pedestrian, cyclist, or anyone else at the scene.", type: "select", options: YNU, required: true, showIf: { key: "anyoneInjured", equals: "Yes" } },
+      { key: "otherPartiesInjured", label: "Is anyone in the other vehicle hurt?", type: "select", options: YNU, required: true, showIf: { key: "anyoneInjured", equals: "Yes" } },
       { key: "medicalAwayFromScene", label: "Did anyone leave the scene for medical treatment?", type: "select", options: YNU, required: true },
       { key: "pedestrianInvolved", label: "Was a pedestrian or cyclist involved?", type: "select", options: YNU, required: true },
       { key: "otherVehicleInvolved", label: "Was another vehicle involved?", type: "select", options: YNU, required: true },
