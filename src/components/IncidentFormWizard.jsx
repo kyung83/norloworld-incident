@@ -8,7 +8,33 @@ import { ENDPOINT } from "../config";
 // =============================================================================
 
 const DRAFT_KEY = "norlo-incident-draft-v1";
+// An incident is worked and done inside a few hours — police report taken, tow
+// arranged, driver rolling again. A draft older than six hours is almost
+// certainly a different incident, or one the driver abandoned. Restoring it
+// would put a previous incident's answers on today's report.
+const DRAFT_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6 hours
 const FIRST_GATE = "anyoneInjured";
+
+// "just now" / "3 minutes ago" / "2 hours ago" for the resume banner.
+function timeAgo(ts) {
+  if (!ts) return "a while ago";
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + (m === 1 ? " minute ago" : " minutes ago");
+  const h = Math.floor(m / 60);
+  return h + (h === 1 ? " hour ago" : " hours ago");
+}
+
+// Driver name + truck for the resume banner — so a different driver sees at a
+// glance that the saved draft isn't his and taps Start over.
+function draftDetail(values) {
+  const parts = [];
+  if (values && values.driverName) parts.push(values.driverName);
+  const truck = values && (values.truck || values.truckNumber);
+  if (truck) parts.push("Truck " + truck);
+  return parts.join(" · ");
+}
 
 const US_STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
@@ -253,6 +279,10 @@ export default function IncidentFormWizard() {
   const [sessionId, setSessionId] = useState(
     () => "S" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
   );
+  // A saved draft is OFFERED via a banner, never auto-applied — the form always
+  // opens at step one. pendingDraft holds the offer until the driver chooses.
+  const [pendingDraft, setPendingDraft] = useState(null);
+  const [confirmStartOver, setConfirmStartOver] = useState(false);
 
   const valuesRef = useRef(values);
   valuesRef.current = values;
@@ -261,39 +291,64 @@ export default function IncidentFormWizard() {
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
 
-  // --- draft restore -------------------------------------------------------
+  // --- draft restore: offer, don't auto-apply ------------------------------
+  // Always open at step one. If a recent draft exists, surface a banner so the
+  // driver chooses to resume — never silently reload a report, which could drop
+  // one incident's answers onto another's. Drafts older than 6h are discarded.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
       if (!raw) return;
       const d = JSON.parse(raw);
-      if (d.values) {
-        setValues(d.values);
-        const ps = {};
-        ALL_PHOTO_KEYS.forEach((k) => {
-          if (/^https?:/.test(String(d.values[k] || ""))) ps[k] = "done";
-        });
-        setPhotoStatus(ps);
+      if (!d || !d.values || !Object.keys(d.values).length) return;
+      if (!d.savedAt || Date.now() - d.savedAt > DRAFT_MAX_AGE_MS) {
+        localStorage.removeItem(DRAFT_KEY); // stale — discard rather than restore
+        return;
       }
-      if (d.types) setTypes(d.types);
-      if (typeof d.step === "number") setStep(d.step);
-      if (d.sessionId) setSessionId(d.sessionId);
+      setPendingDraft(d);
     } catch {
       // corrupt draft is not worth blocking the form over
     }
+  }, []);
+
+  // Apply the offered draft, restoring the session ID too so photos already
+  // uploaded stay in the same Drive folder (not split across two).
+  const resumeDraft = useCallback(() => {
+    const d = pendingDraft;
+    if (!d) return;
+    setValues(d.values || {});
+    const ps = {};
+    ALL_PHOTO_KEYS.forEach((k) => {
+      if (/^https?:/.test(String((d.values || {})[k] || ""))) ps[k] = "done";
+    });
+    setPhotoStatus(ps);
+    if (d.types) setTypes(d.types);
+    if (typeof d.step === "number") setStep(d.step);
+    if (d.sessionId) setSessionId(d.sessionId);
+    setPendingDraft(null);
+    setConfirmStartOver(false);
+  }, [pendingDraft]);
+
+  const discardDraft = useCallback(() => {
+    try { localStorage.removeItem(DRAFT_KEY); } catch {}
+    setPendingDraft(null);
+    setConfirmStartOver(false);
   }, []);
 
   useEffect(() => {
     if (!Object.keys(values).length && !types.length) return;
     try {
       // Photo image data is never persisted (keeps the draft small); their
-      // Drive URLs live in `values` and are restored above.
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ values, types, step, sessionId }));
-      setSavedAt(Date.now());
+      // Drive URLs live in `values` and are restored above. savedAt drives the
+      // resume banner's "saved X ago" and the 6-hour expiry.
+      const now = Date.now();
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ values, types, step, sessionId, savedAt: now }));
+      setSavedAt(now);
     } catch {}
   }, [values, types, step, sessionId]);
 
   const set = useCallback((key, val) => {
+    setPendingDraft(null); // the driver is filling this out fresh — drop the offer
     setValues((v) => ({ ...v, [key]: val }));
   }, []);
 
@@ -484,6 +539,39 @@ export default function IncidentFormWizard() {
       <div className="mb-5 h-1 w-full rounded bg-gray-200">
         <div className="h-1 rounded bg-blue-600 transition-all" style={{ width: `${pct}%` }} />
       </div>
+
+      {pendingDraft && (
+        <div className="mb-4 rounded-lg border border-blue-300 bg-blue-50 p-4">
+          <p className="text-sm font-semibold text-blue-900">Pick up where you left off?</p>
+          <p className="mt-1 text-xs text-blue-800">
+            {draftDetail(pendingDraft.values)}
+            {draftDetail(pendingDraft.values) ? " — " : ""}saved {timeAgo(pendingDraft.savedAt)}
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={resumeDraft}
+              className="flex-1 rounded bg-blue-600 py-3 text-center text-sm font-medium text-white"
+            >
+              Pick up where I left off
+            </button>
+            {!confirmStartOver ? (
+              <button
+                onClick={() => setConfirmStartOver(true)}
+                className="flex-1 rounded border border-blue-300 py-3 text-center text-sm text-blue-800"
+              >
+                Start over
+              </button>
+            ) : (
+              <button
+                onClick={discardDraft}
+                className="flex-1 rounded border border-red-400 bg-red-50 py-3 text-center text-sm font-medium text-red-800"
+              >
+                Tap again to discard
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="flex-1">
         {current?.kind === "gate" && (
