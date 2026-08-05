@@ -46,13 +46,26 @@ as files in the *same* project (Files → +; the `.html` as an **HTML** file nam
 (run once)**. The menu's **Open** item launches the dashboard. Setup + daily use
 in `incident-workbook-tools-SETUP.md`.
 
-## Pending
+## Status — this is the deployed backend
 
-- **FIX 1b (case number stored as text)** is now **applied** to
-  `incident-api-v2.gs` (column A forced to text after `appendRow`) — **needs a
-  backend redeploy** to take effect. Also do **FIX 1a** once by hand: in
-  `IncidentsData`, Format → Number → Plain text on column A, then retype the
-  existing damaged row's case number with its leading zero.
+`incident-api-v2.gs` here is the **canonical, deployed** version (`runSelfTest`
+passing). It folds in everything:
+- **FIX 1b** — case number kept as text (`setNumberFormat('@')`), so leading
+  zeros survive. (FIX 1a — column A → Format → Plain text — is a one-time sheet
+  step, already done.)
+- **Photo-folder fix** — upload folder named `PENDING <sessionId>`, renamed to
+  `<CaseNumber> - Driver` at submit; human-readable photo file names.
+- **Split driver name** — `driverFullName_` writes "Last, First" to the Driver
+  column, falling back to the old `driverName` for pre-split rows.
+- **Duplicate guard** — `existingCaseForSession_` scans the last 50 rows'
+  Payload for the wizard's `sessionId`; on a repeat, `createIncident` returns
+  `{ ok:true, duplicate:true, caseNumber }` (the original) instead of writing a
+  second row or paging safety again. This is the server half of the frontend's
+  `submittedRef` / `_duplicate`-banner fix.
+
+> ⚠️ This file is deployed in Apps Script as **`incident-api.gs`** — the `-v2`
+> is just the repo filename. **Edit here and paste over that file.** This is the
+> single source of truth; the `Downloads/` copy is superseded.
 
 > These copies are the source of truth. The parallel "Accident reporting system"
 > chat edits the loose copies in `Downloads/`; keep this folder synced from

@@ -34,7 +34,7 @@
 // =============================================================================
 
 var INC = {
-  // "2026 Incident Report Updated" — where driver submissions land.
+  // "Incident Report Updated" — where driver submissions land.
   SHEET_ID:        '1eet9u2Bb9m_8Aj-TFymxAwouK2z-O1AmAwt5KajVu0w',
 
   // Breakdown workbook. Only used by spawnBreakdown_, which is disabled below
@@ -151,8 +151,8 @@ function doPost(request) {
  * returned URLs in the createIncident payload — so no image data ever touches
  * the sheet.
  *
- * Layout:  Incident Photos / "YYYY-MM-DD DriverName" / YYYY-MM-DD_DriverName_slot.jpg
- * Payload: { dataUrl | content, contentType?, slot, driverName, dateOfIncident }
+ * Payload: { dataUrl | content, contentType?, slot, driverName, dateOfIncident,
+ *            sessionId }
  */
 function savePhoto(p) {
   try {
@@ -172,11 +172,10 @@ function savePhoto(p) {
     }
     if (!b64) return { ok: false, error: 'No image data' };
 
-    var driver  = sanitizeName_(pick_(p, 'driverName', 'driver')) || 'Unknown';
+    var driver  = sanitizeName_(driverFullName_(p)) || 'Unknown';
     var dateStr = photoDateStr_(p.dateOfIncident);
-    var slot    = sanitizeName_(p.slot || 'photo');
     var ext     = contentType.indexOf('png') > -1 ? 'png' : 'jpg';
-    var name    = dateStr + '_' + driver + '_' + slot + '.' + ext;
+    var name    = photoFileName_(p.slot, dateStr, driver, ext);
     var blob    = Utilities.newBlob(Utilities.base64Decode(b64), contentType, name);
 
     // Resolve the folder under a short lock so two photos from the same
@@ -198,6 +197,47 @@ function savePhoto(p) {
     logError_('savePhoto', err);
     return { ok: false, error: String(err) };
   }
+}
+
+/**
+ * Human-readable, sortable file names.
+ *
+ * The wizard sends its field key as the slot — "other-id", "other-property" —
+ * which means nothing to anyone opening the folder cold. Six months from now
+ * an adjuster or an attorney may be looking at these, and "other-id.jpg" does
+ * not tell them it is a photo of the other driver's licence.
+ *
+ * The leading number is not decoration: Drive sorts by name, so numbering puts
+ * the folder in the order the checklist asks for the shots — scene first, then
+ * our equipment, then theirs, then documents.
+ */
+var PHOTO_SLOT_NAMES = {
+  'scene':            '1-scene-wide-shot',
+  'photoScene':       '1-scene-wide-shot',
+  'our-truck':        '2-our-equipment-damage',
+  'photoOurEquipment':'2-our-equipment-damage',
+  'other-property':   '3-their-property-damage',
+  'photoOtherProperty':'3-their-property-damage',
+  'other-vehicle':    '4-their-vehicle-all-sides',
+  'photoOtherVehicle':'4-their-vehicle-all-sides',
+  'other-id':         '5-other-driver-license',
+  'photoOtherId':     '5-other-driver-license',
+  'other-insurance':  '6-other-driver-insurance',
+  'photoOtherInsurance':'6-other-driver-insurance',
+  'ticket':           '7-citation',
+  'photoTicket':      '7-citation',
+  'police-report':    '8-police-report-or-card',
+  'photoPoliceReport':'8-police-report-or-card',
+  'load-wide':        '9-freight-whole-load',
+  'photoLoadWide':    '9-freight-whole-load',
+  'load-damage':      '10-freight-damage-closeup',
+  'photoLoadDamage':  '10-freight-damage-closeup'
+};
+
+function photoFileName_(slot, dateStr, driver, ext) {
+  var key   = String(slot || '').trim();
+  var label = PHOTO_SLOT_NAMES[key] || sanitizeName_(key || 'photo');
+  return label + '_' + driver + '_' + dateStr + '.' + ext;
 }
 
 /**
@@ -266,7 +306,7 @@ function incidentPhotoFolderFinal_(p, caseNumber) {
   }
   if (!hasPhoto) return '';
   try {
-    var driver  = sanitizeName_(pick_(p, 'driverName', 'driver')) || 'Unknown';
+    var driver  = sanitizeName_(driverFullName_(p)) || 'Unknown';
     var dateStr = photoDateStr_(p.dateOfIncident);
     var folder  = incidentPhotoFolder_(p.sessionId, dateStr, driver);
 
@@ -327,7 +367,10 @@ function nextCaseNumber_(sheet) {
     if (caseCol) {
       var nums = sheet.getRange(2, caseCol, lastRow - 1, 1).getValues();
       for (var i = 0; i < nums.length; i++) {
+        // A leading zero may have been stripped by number formatting on an
+        // older row. Pad it back so the year check below still lines up.
         var cn = String(nums[i][0] || '');
+        if (cn.length === 7) cn = '0' + cn;
         // MMDDYY + sequence; the year is chars 5-6 (index 4-5).
         if (cn.length >= 8 && cn.substring(4, 6) === yy) {
           var seq = parseInt(cn.substring(6), 10);
@@ -455,7 +498,21 @@ function laneFor_(p, tier) {
   var typesText = (p.incidentTypes || []).join(' ').toLowerCase();
   var hitTheirs = typesText.indexOf('someone else') > -1;
 
-  var needsBreakdown = no_(p.truckDrivable) || yes_(p.towRequired) || yes_(p.vehicleStuck);
+  // Breakdown owns maintenance as well as roadside, so it is one queue: a
+  // stranded truck and a cracked mirror both end up with the same department.
+  // Any damage to our equipment goes to them, whether or not it stopped the
+  // truck — damage nobody logs is damage that gets deferred, and deferred
+  // damage is what an inspector finds.
+  var damagedOurs = typesText.indexOf('our truck') > -1 ||
+                    typesText.indexOf('our equipment') > -1 ||
+                    String(p.ourDamageWhat || '').trim() !== '' ||
+                    /^https?:/i.test(String(p.photoOurEquipment || ''));
+
+  var needsBreakdown = damagedOurs ||
+                       no_(p.truckDrivable) ||
+                       yes_(p.towRequired) ||
+                       yes_(p.vehicleStuck);
+
   var needsSafety    = tier === 1 || yes_(p.otherPartyInvolved) ||
                        yes_(p.citationIssued) || yes_(p.anyoneInjured) ||
                        hitTheirs;
@@ -484,7 +541,15 @@ function createIncident(p) {
     var lock = LockService.getScriptLock();
     lock.waitLock(30000);
     var caseNumber, rowNum, photoFolderUrl;
+    var duplicate = false;
     try {
+    // Inside the lock on purpose: two taps a fraction apart would otherwise
+    // both pass the check and both write a row.
+    var already = existingCaseForSession_(sheet, p.sessionId);
+    if (already) {
+      duplicate  = true;
+      caseNumber = already;
+    } else {
     caseNumber = nextCaseNumber_(sheet);
     // One folder link opens every photo for this incident (up to ten). The
     // upload folder was named by session ID because the case number did not
@@ -497,7 +562,7 @@ function createIncident(p) {
     sheet.appendRow([
       caseNumber,                                         // A  Case Number
       new Date(),                                         // B  Timestamp
-      pick_(p, 'driverName', 'driver'),                   // C  Driver
+      driverFullName_(p),                                 // C  Driver
       pick_(p, 'driverPhone', 'driverContact', 'phone'),  // D  Driver Phone
       pick_(p, 'truck', 'truckNumber'),                   // E  Truck
       pick_(p, 'trailer', 'trailerNumber'),               // F  Trailer
@@ -525,16 +590,30 @@ function createIncident(p) {
       JSON.stringify(p)                                   // AB Payload (hidden)
     ]);
     rowNum = sheet.getLastRow();
-    // Keep the case number as text. Sheets otherwise reads 08042601 as a number
-    // and drops the leading zero, breaking both the number people quote and the
-    // dashboard's MMDDYY month parsing.
-    sheet.getRange(rowNum, 1).setNumberFormat('@').setValue(caseNumber);
+    }
+    // Force the case number to stay text. Sheets otherwise reads 08042601 as a
+    // number and drops the leading zero — which breaks the dashboard's monthly
+    // counts AND changes the number Riley quotes to an insurer.
+    if (!duplicate) {
+      sheet.getRange(rowNum, 1).setNumberFormat('@').setValue(caseNumber);
+    }
     } finally {
       lock.releaseLock();
     }
 
     // Only Tier 1 makes a phone buzz. This single condition is the difference
     // between the current situation and the one you asked for.
+    // A duplicate is already recorded and already paged. Hand back the original
+    // case number and stop — re-paging safety for the same incident is the
+    // exact behaviour this project exists to prevent.
+    if (duplicate) {
+      return {
+        ok: true, duplicate: true, caseNumber: caseNumber,
+        tier: sev.tier, reasons: sev.reasons, lane: sev.lane,
+        notify: { sent: false, reason: 'Already submitted' }
+      };
+    }
+
     var notify = { sent: false, reason: 'Tier ' + sev.tier + ' — queued, no SMS' };
     if (sev.tier === 1) {
       notify = notifyTier1_(rowNum, id, p, sev);
@@ -587,7 +666,7 @@ function notifyTier1_(rowNum, id, p, sev) {
 
   var body = [
     'TIER 1 INCIDENT ' + id,
-    (p.driverName || 'Unknown driver') + '  ' + (p.driverPhone || ''),
+    (driverFullName_(p) || 'Unknown driver') + '  ' + (p.driverPhone || ''),
     'Truck ' + (p.truck || '?') + '  Trailer ' + (p.trailer || '?'),
     (p.locationName || '') + ' ' + (p.city || '') + ' ' + (p.state || ''),
     sev.reasons.join('; ')
@@ -617,7 +696,7 @@ function spawnBreakdown_(incidentId, p) {
     sheet.appendRow([
       '',
       Utilities.formatDate(new Date(), 'GMT', 'yyyy-MM-dd'),
-      p.driverName || '',
+      driverFullName_(p),
       p.truck      || '',
       p.trailer    || '',
       p.state      || '',
@@ -744,6 +823,59 @@ function pick_(obj) {
   return '';
 }
 
+/**
+ * Has this submission already been recorded?
+ *
+ * A driver double-taps Submit, or the network stalls and the form retries, or
+ * he refreshes and resubmits a draft that should have been cleared. Any of
+ * those produces two identical incidents with two case numbers — and Riley
+ * calling the same driver twice about the same deer.
+ *
+ * The wizard mints one sessionId per submission and it rides in the payload,
+ * so an exact repeat is detectable. Returns the existing case number if found.
+ *
+ * Scans recent rows rather than the whole sheet: a duplicate arrives seconds
+ * after the original, never a year later.
+ */
+function existingCaseForSession_(sheet, sessionId) {
+  if (!sessionId) return '';
+  var last = sheet.getLastRow();
+  if (last < 2) return '';
+
+  var payCol  = colFor_(sheet, 'Payload');
+  var caseCol = colFor_(sheet, 'Case Number');
+  if (payCol < 0 || caseCol < 0) return '';
+
+  var from = Math.max(2, last - 50);
+  var n    = last - from + 1;
+  var pays  = sheet.getRange(from, payCol,  n, 1).getValues();
+  var cases = sheet.getRange(from, caseCol, n, 1).getValues();
+
+  var needle = '"sessionId":"' + sessionId + '"';
+  for (var i = pays.length - 1; i >= 0; i--) {
+    if (String(pays[i][0]).indexOf(needle) > -1) return String(cases[i][0]);
+  }
+  return '';
+}
+
+/**
+ * "Last, First" for the Driver column.
+ *
+ * The form now asks for first and last name separately — one combined field
+ * left drivers guessing which order to type, and the sheet ended up with both.
+ * Writing "Last, First" means the Driver column sorts by surname, which one
+ * free-text field never allowed.
+ *
+ * Falls back to the old single driverName for rows submitted before the split,
+ * so existing records keep rendering in the dashboard.
+ */
+function driverFullName_(p) {
+  var first = String(p.driverFirstName || '').trim();
+  var last  = String(p.driverLastName  || '').trim();
+  if (first && last) return last + ', ' + first;
+  return pick_(p, 'driverName', 'driver', 'driverLastName', 'driverFirstName');
+}
+
 /** Incident types arrive as an array from the checkboxes; flatten for the cell. */
 function typeList_(p) {
   var t = p.incidentTypes || p.incidentType || p.types;
@@ -778,6 +910,11 @@ function json_(obj) {
 // --- Header-addressed columns ------------------------------------------------
 // Address columns by their header name, not a fixed index, so the sheet can be
 // reordered freely and the code follows. Cached per execution.
+//
+// NOTE: the cache is a single global not keyed by sheet, so this pair is safe
+// only while one execution touches one tab. The office-side tools in
+// incident-workbook-tools.gs read two tabs in a run and therefore keep their
+// own colIndex_/setCell_ — do not "clean up the duplication" by merging them.
 var _headerCache = null;
 
 function colFor_(sheet, headerName) {
@@ -886,8 +1023,8 @@ function isIncidentAppEnabled_() {
  *
  * Select "runSelfTest" in the function dropdown, click Run, then read the
  * Execution log. It checks the sheet connection and walks computeSeverity_
- * through the seven cases from the runbook. Nothing is written and nothing is
- * sent — it only reads the sheet header and calls the tier logic.
+ * through the tier cases. Nothing is written and nothing is sent — it only
+ * reads the sheet header and calls the tier logic.
  */
 function runSelfTest() {
   var pass = 0, fail = 0;
@@ -910,7 +1047,7 @@ function runSelfTest() {
                SpreadsheetApp.openById(INC.SHEET_ID).getName(),
                INC.DATA_TAB, headers.length);
     if (headers.length < 28) {
-      Logger.log('  WARNING: expected 28 headers, found %s', headers.length);
+      Logger.log('  WARNING: expected at least 28 headers, found %s', headers.length);
     }
     pass++;
   } catch (err) {
@@ -976,6 +1113,43 @@ function runSelfTest() {
     if (c > 0) { Logger.log('  PASS  %s → col %s', h, c); pass++; }
     else       { Logger.log('  FAIL  %s → NOT FOUND', h); fail++; }
   });
+
+  Logger.log('--- Case numbers ---');
+  // Checking the VALUES, not the column format. Google reports "Automatic" as
+  // an empty string and plain text as '@', but neither reliably tells you
+  // whether a leading zero actually survived — and the value is what matters.
+  // A case number is MMDDYY + a sequence of at least two: 8 characters minimum.
+  // Anything shorter has been mangled by number formatting.
+  try {
+    var cnSheet = tab_(INC.SHEET_ID, INC.DATA_TAB);
+    var lastCn  = cnSheet.getLastRow();
+    if (lastCn < 2) {
+      Logger.log('  (no incidents yet — nothing to check)');
+    } else {
+      var col  = colFor_(cnSheet, 'Case Number');
+      var vals = cnSheet.getRange(2, col, lastCn - 1, 1).getValues();
+      var bad  = [];
+      for (var ci = 0; ci < vals.length; ci++) {
+        var raw = vals[ci][0];
+        if (raw === '' || raw === null) continue;
+        if (typeof raw === 'number' || String(raw).length < 8) {
+          bad.push('row ' + (ci + 2) + ': ' + raw);
+        }
+      }
+      if (bad.length) {
+        Logger.log('  FAIL  %s case number(s) lost a leading zero:', bad.length);
+        bad.forEach(function (b) { Logger.log('          ' + b); });
+        Logger.log('        Select column A → Format → Number → Plain text,');
+        Logger.log('        then retype those cells with the leading zero.');
+        fail++;
+      } else {
+        Logger.log('  PASS  All %s case number(s) intact', vals.length);
+        pass++;
+      }
+    }
+  } catch (e) {
+    Logger.log('  Could not check case numbers: %s', e);
+  }
 
   Logger.log('--- Flags ---');
   Logger.log('  DRY_RUN: %s   SMS_ENABLED: %s   BREAKDOWN_SPAWN: %s',
