@@ -14,6 +14,9 @@ const DRAFT_KEY = "norlo-incident-draft-v1";
 // would put a previous incident's answers on today's report.
 const DRAFT_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6 hours
 const FIRST_GATE = "anyoneInjured";
+// Shown directly after the first gate (before identity), only when its showIf
+// holds (anyoneInjured === "Yes").
+const SECOND_GATE = "otherPartiesInjured";
 
 // "just now" / "3 minutes ago" / "2 hours ago" for the resume banner.
 function timeAgo(ts) {
@@ -406,18 +409,25 @@ export default function IncidentFormWizard() {
     const out = [];
     const gateFields = gatesSection ? gatesSection.fields : [];
 
+    // Gate-level showIf: skip a conditional gate until its condition holds.
+    const gateVisible = (f) => !f.showIf || values[f.showIf.key] === f.showIf.equals;
+
     const first = gateFields.find((f) => f.key === FIRST_GATE);
     if (first) out.push({ kind: "gate", field: first });
+
+    // otherPartiesInjured sits right after the first gate, before identity, and
+    // only when anyoneInjured === "Yes".
+    const second = gateFields.find((f) => f.key === SECOND_GATE);
+    if (second && gateVisible(second)) out.push({ kind: "gate", field: second });
 
     if (identitySection) {
       out.push({ kind: "group", title: identitySection.title, fields: identitySection.fields });
     }
 
+    // The remaining gates stay after identity.
     gateFields
-      .filter((f) => f.key !== FIRST_GATE)
-      // Gate-level showIf: skip a conditional gate until its condition holds
-      // (e.g. otherPartiesInjured only when anyoneInjured === "Yes").
-      .filter((f) => !f.showIf || values[f.showIf.key] === f.showIf.equals)
+      .filter((f) => f.key !== FIRST_GATE && f.key !== SECOND_GATE)
+      .filter(gateVisible)
       .forEach((f) => out.push({ kind: "gate", field: f }));
 
     out.push({ kind: "types" });
@@ -669,6 +679,7 @@ function GateScreen({ field, value, onPick, banner }) {
         </div>
       )}
       <h1 className="text-2xl font-medium leading-snug">{field.label}</h1>
+      {field.sublabel && <p className="mt-2 text-sm text-gray-500">{field.sublabel}</p>}
       <div className="mt-6 flex flex-col gap-3">
         {opts.map((o) => (
           <button
