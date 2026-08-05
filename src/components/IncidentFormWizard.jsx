@@ -303,6 +303,10 @@ export default function IncidentFormWizard() {
   photoDataRef.current = photoData;
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
+  // True the instant a submit succeeds — before any re-render — so the draft-
+  // save effect can't write a fresh draft after submit clears it (which would
+  // offer to "resume" an already-sent report and let it be submitted twice).
+  const submittedRef = useRef(false);
 
   // --- draft restore: offer, don't auto-apply ------------------------------
   // Always open at step one. If a recent draft exists, surface a banner so the
@@ -349,6 +353,7 @@ export default function IncidentFormWizard() {
   }, []);
 
   useEffect(() => {
+    if (submittedRef.current) return; // report is sent — never resurrect the draft
     if (!Object.keys(values).length && !types.length) return;
     try {
       // Photo image data is never persisted (keeps the draft small); their
@@ -525,6 +530,11 @@ export default function IncidentFormWizard() {
 
   // --- submit ---------------------------------------------------------------
   async function submit() {
+    // A second tap while the first request is still open would send twice — the
+    // button is disabled during send, but a stale render or a fast double-tap
+    // can slip through, and submittedRef also blocks a resend after success.
+    if (status === "sending" || submittedRef.current) return;
+
     setStatus("sending");
     setError("");
 
@@ -552,9 +562,12 @@ export default function IncidentFormWizard() {
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Submission failed");
 
+      // Set the flag BEFORE clearing/updating state: the draft-save effect
+      // re-fires on setValues, and this stops it writing a fresh draft.
+      submittedRef.current = true;
       localStorage.removeItem(DRAFT_KEY);
       setStatus("done");
-      setValues({ _incidentId: data.incidentId, _caseNumber: data.caseNumber, _tier: data.tier });
+      setValues({ _caseNumber: data.caseNumber, _tier: data.tier, _duplicate: data.duplicate });
     } catch (err) {
       setStatus("error");
       setError(String(err.message || err));
@@ -565,6 +578,11 @@ export default function IncidentFormWizard() {
   if (status === "done") {
     return (
       <div className="mx-auto my-6 w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 text-center text-gray-900 shadow-lg">
+        {values._duplicate && (
+          <p className="mb-3 rounded border border-amber-400 bg-amber-50 p-3 text-sm text-amber-900">
+            This report was already sent. Safety has it once — nothing was duplicated.
+          </p>
+        )}
         <h1 className="text-xl font-medium">Report submitted</h1>
         {values._caseNumber && (
           <>
@@ -572,7 +590,6 @@ export default function IncidentFormWizard() {
             <p className="text-3xl font-bold tracking-wider">{values._caseNumber}</p>
           </>
         )}
-        <p className="mt-2 text-xs text-gray-500">Reference {values._incidentId}</p>
         <p className="mt-4 text-sm text-gray-600">
           {values._tier === 1
             ? "Safety has this now and will call you. Stay where you are if it is safe to do so. You do not need to text it."
