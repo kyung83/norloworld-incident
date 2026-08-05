@@ -222,7 +222,7 @@ var DASH_ANSWER_LABELS = {
 // Already shown as their own column, or plumbing. Skipped so the block does not
 // repeat what is directly above it.
 var DASH_ANSWER_SKIP = [
-  'driverName','driver','driverPhone','driverContact','truck','truckNumber',
+  'driverName','driverFirstName','driverLastName','driver','driverPhone','driverContact','truck','truckNumber',
   'trailer','trailerNumber','dateOfIncident','timeOfIncident','description',
   'city','state','siteName','streetAddress','location','locationName',
   'incidentTypes','incidentType','types','submittedAt','sessionId',
