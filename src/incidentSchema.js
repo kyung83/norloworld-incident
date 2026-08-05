@@ -69,7 +69,7 @@ export const SECTIONS = [
       { key: "medicalAwayFromScene", label: "Did anyone leave the scene for medical treatment?", type: "select", options: YNU, required: true },
       { key: "pedestrianInvolved", label: "Was a pedestrian or cyclist involved?", type: "select", options: YNU, required: true },
       { key: "otherVehicleInvolved", label: "Was another vehicle involved?", type: "select", options: YNU, required: true },
-      { key: "otherPartyInvolved", label: "Is there another person or company involved in any way?", type: "select", options: YNU, required: true },
+      { key: "otherPartyInvolved", label: "Did you hit anything that isn't ours?", sublabel: "A building, fence, pole, parked car, a customer's dock — anything belonging to someone else.", type: "select", options: YNU, required: true, showIf: { key: "otherVehicleInvolved", notEquals: "Yes" } },
       { key: "policeOnScene", label: "Are police on scene, or was a report taken?", type: "select", options: YNU, required: true },
       { key: "citationIssued", label: "Was anyone issued a ticket or citation?", type: "select", options: YNU, required: true },
       { key: "rollover", label: "Did the truck roll over or jackknife?", type: "select", options: YNU, required: true },

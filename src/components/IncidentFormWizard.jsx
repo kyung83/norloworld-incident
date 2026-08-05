@@ -351,6 +351,24 @@ export default function IncidentFormWizard() {
     } catch {}
   }, [values, types, step, sessionId]);
 
+  // "Another vehicle involved" implies another party is involved: when
+  // otherVehicleInvolved is Yes we set otherPartyInvolved to Yes and skip that
+  // step (kept in the payload for the backend's fail-upward check). When no
+  // vehicle was involved we ask otherPartyInvolved directly (reworded — "did you
+  // hit anything that isn't ours?"); if it had been auto-set from a prior Yes,
+  // clear it first so the answer is fresh.
+  const prevVehicleRef = useRef(undefined);
+  useEffect(() => {
+    const v = values.otherVehicleInvolved;
+    const prev = prevVehicleRef.current;
+    prevVehicleRef.current = v;
+    if (v === "Yes") {
+      setValues((p) => (p.otherPartyInvolved === "Yes" ? p : { ...p, otherPartyInvolved: "Yes" }));
+    } else if (prev === "Yes") {
+      setValues((p) => (p.otherPartyInvolved ? { ...p, otherPartyInvolved: "" } : p));
+    }
+  }, [values.otherVehicleInvolved]);
+
   const set = useCallback((key, val) => {
     setPendingDraft(null); // the driver is filling this out fresh — drop the offer
     setValues((v) => ({ ...v, [key]: val }));
@@ -411,7 +429,12 @@ export default function IncidentFormWizard() {
     const gateFields = gatesSection ? gatesSection.fields : [];
 
     // Gate-level showIf: skip a conditional gate until its condition holds.
-    const gateVisible = (f) => !f.showIf || values[f.showIf.key] === f.showIf.equals;
+    const gateVisible = (f) => {
+      if (!f.showIf) return true;
+      const actual = values[f.showIf.key];
+      if ("notEquals" in f.showIf) return actual !== f.showIf.notEquals;
+      return actual === f.showIf.equals;
+    };
 
     // Leading gates, in order, before identity — each still gated by its showIf.
     LEADING_GATES.forEach((key) => {
