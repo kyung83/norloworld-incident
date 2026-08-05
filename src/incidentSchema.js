@@ -58,7 +58,8 @@ export const SECTIONS = [
     title: "Driver and Vehicle Information",
     types: null,
     fields: [
-      { key: "driverName", label: "Last Name, First Name", type: "text", required: true },
+      { key: "driverFirstName", label: "First Name", type: "text", required: true },
+      { key: "driverLastName", label: "Last Name", type: "text", required: true },
       { key: "truckNumber", label: "Northern Truck #", type: "text", inputMode: "numeric", required: true },
       { key: "trailerNumber", label: "Northern Trailer #", type: "text", inputMode: "numeric", required: true },
       { key: "dateOfIncident", label: "Date of Incident", type: "date", required: true },

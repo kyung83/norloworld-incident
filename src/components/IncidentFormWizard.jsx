@@ -378,6 +378,19 @@ export default function IncidentFormWizard() {
     }
   }, [values.otherVehicleInvolved]);
 
+  // Keep a combined driverName ("Last, First") in sync with the split name
+  // fields, so the photo Drive folder, the resume banner, and the backend's
+  // Driver column keep working with no backend change. Guarded so it never
+  // clobbers a value before anything is typed (and preserves an old draft's
+  // driverName that predates the split).
+  useEffect(() => {
+    const first = (values.driverFirstName || "").trim();
+    const last = (values.driverLastName || "").trim();
+    if (!first && !last) return;
+    const combined = last && first ? `${last}, ${first}` : last || first;
+    setValues((p) => (p.driverName === combined ? p : { ...p, driverName: combined }));
+  }, [values.driverFirstName, values.driverLastName]);
+
   const set = useCallback((key, val) => {
     setPendingDraft(null); // the driver is filling this out fresh — drop the offer
     setValues((v) => ({ ...v, [key]: val }));
