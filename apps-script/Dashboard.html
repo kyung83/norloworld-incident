@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ---------------------------------------------------------------------------
+     Norlo Incident Dashboard
+
+     Designed as a case file rather than a SaaS dashboard. The people using this
+     spend their day in DOT paperwork, printed checklists and carrier forms —
+     the visual language of records, not analytics.
+
+     Type:  Barlow Semi Condensed, a grotesque drawn from American highway
+            signage. Right lineage for a trucking company, and legible at small
+            sizes in a dense form.
+            IBM Plex Mono is used ONLY for identifiers — case numbers, truck and
+            trailer numbers, phone numbers, timestamps. Mono signals "this is a
+            thing you read aloud to someone", which is exactly what these are.
+
+     Colour: Norlo's existing green stays, because it is already the company's.
+            Tier colours come from placards and warning signage rather than UI
+            convention: oxide red, sign amber, and a deliberately quiet slate
+            for Tier 3 — the whole point of Tier 3 is that it does not demand
+            attention.
+  --------------------------------------------------------------------------- */
+  :root{
+    --ink:#14231a;
+    --forest:#1e5631;
+    --forest2:#2f7a49;
+    --moss:#e8efe9;
+    --paper:#fbfbf9;
+    --rule:#d4d9d2;
+    --muted:#6c7870;
+
+    --t1:#a8321e;   --t1bg:#fbeeea;
+    --t2:#b8801f;   --t2bg:#fdf5e6;
+    --t3:#5a6b5e;   --t3bg:#eff1ef;
+
+    --shadow:0 1px 2px rgba(20,35,26,.06), 0 4px 12px rgba(20,35,26,.05);
+  }
+  *{box-sizing:border-box;}
+  body{
+    font-family:'Barlow Semi Condensed',-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    margin:0;color:var(--ink);font-size:14px;background:var(--paper);
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--forest2);text-decoration:none;border-bottom:1px solid rgba(47,122,73,.3);}
+  a:hover{border-bottom-color:var(--forest2);}
+  .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;}
+
+  /* ---- Header ---- */
+  header{
+    background:var(--forest);color:#fff;padding:0 20px;height:52px;
+    display:flex;align-items:center;gap:20px;position:sticky;top:0;z-index:6;
+  }
+  header h1{
+    font-size:15px;margin:0;font-weight:600;letter-spacing:.08em;
+    text-transform:uppercase;
+  }
+  header h1 span{opacity:.55;font-weight:400;}
+  .pills{display:flex;gap:0;margin-left:auto;align-items:stretch;height:100%;}
+  .pill{
+    display:flex;flex-direction:column;justify-content:center;
+    padding:0 18px;border-left:1px solid rgba(255,255,255,.14);
+    font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+    color:rgba(255,255,255,.6);line-height:1.3;
+  }
+  .pill b{
+    font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:500;
+    color:#fff;letter-spacing:0;
+  }
+
+  /* ---- Toolbar ----
+     Two rows, because finding a case and acting on the loaded one are
+     different jobs. Squeezed onto one line you scan past one to reach the
+     other, and every field has to be trimmed to fit. */
+  .toolbar{
+    border-bottom:1px solid var(--rule);background:#fff;
+    position:sticky;top:52px;z-index:5;
+  }
+  .trow{
+    padding:9px 20px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;
+  }
+  .trow.act{background:#fafbfa;border-top:1px solid var(--rule);}
+  .grp{display:flex;align-items:center;gap:7px;}
+  .toolbar label{
+    font-weight:600;font-size:10px;color:var(--muted);
+    text-transform:uppercase;letter-spacing:.09em;white-space:nowrap;
+  }
+  select,input,textarea{
+    font-family:inherit;font-size:14px;padding:7px 10px;
+    border:1px solid var(--rule);border-radius:3px;width:100%;
+    background:#fff;color:var(--ink);
+  }
+  select:focus,input:focus,textarea:focus{
+    outline:none;border-color:var(--forest2);
+    box-shadow:0 0 0 3px rgba(47,122,73,.14);
+  }
+  textarea{resize:vertical;min-height:60px;line-height:1.5;}
+  .toolbar select,.toolbar input{width:auto;}
+  #picker{min-width:360px;flex:1;max-width:520px;}
+  #exact{width:150px;font-family:'IBM Plex Mono',monospace;font-size:13px;}
+  #filter{min-width:200px;}
+  .spacer{flex:1;}
+  /* The action buttons wrap as one unit. Without this the spacer separates
+     them on a narrow window and Save ends up orphaned on its own row. */
+  .actions{
+    display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:nowrap;
+  }
+  #count{font-size:12px;color:var(--muted);white-space:nowrap;letter-spacing:.02em;
+         margin-left:auto;}
+
+  button{
+    font-family:inherit;font-size:13px;padding:8px 14px;border:0;border-radius:3px;
+    cursor:pointer;font-weight:600;letter-spacing:.02em;
+  }
+  button:focus-visible{outline:2px solid var(--forest2);outline-offset:2px;}
+  .primary{background:var(--forest);color:#fff;}
+  .primary:hover{background:var(--forest2);}
+  .primary:disabled{background:#b9c4bc;cursor:default;}
+  .ghost{background:#fff;border:1px solid var(--rule);color:var(--ink);}
+  .ghost:hover{background:var(--moss);border-color:var(--forest2);}
+  .ghost:disabled{color:#aab3ac;cursor:default;background:#fff;}
+  .ghost:disabled:hover{background:#fff;border-color:var(--rule);}
+
+  /* ---- Tracking ---- */
+  #track{padding:14px 20px 16px;border-bottom:1px solid var(--rule);display:none;background:#fff;}
+  #track h3{
+    margin:0 0 10px;font-size:10px;text-transform:uppercase;
+    letter-spacing:.1em;color:var(--muted);font-weight:600;
+  }
+  .months{display:grid;grid-template-columns:repeat(12,1fr);gap:1px;background:var(--rule);
+          border:1px solid var(--rule);border-radius:3px;overflow:hidden;}
+  .mcard{padding:8px 6px;background:#fff;text-align:center;}
+  .mcard .m{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+  .mcard .n{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:500;color:var(--forest);}
+  .mcard.zero{background:#fafbfa;}
+  .mcard.zero .n{color:#ccd2cd;}
+
+  main{padding:20px;max-width:1180px;margin:0 auto;}
+
+  /* ---- Empty state: an invitation, not an apology ---- */
+  .empty{padding:70px 20px;text-align:center;}
+  .empty h2{
+    font-size:17px;font-weight:600;margin:0 0 6px;color:var(--ink);
+    letter-spacing:.01em;
+  }
+  .empty p{color:var(--muted);margin:0;font-size:14px;}
+
+  /* ---- The record header — the signature element ----
+     A case number is not decoration: 08042601 encodes the date and the
+     same-day sequence, and quoting it to an insurer is a real thing that
+     happens here. So it is set large in mono with its encoding spelled out
+     underneath, which is information nobody could otherwise read off it. */
+  .record{
+    background:#fff;border:1px solid var(--rule);border-radius:4px;
+    box-shadow:var(--shadow);margin-bottom:18px;overflow:hidden;
+    display:flex;align-items:stretch;
+  }
+  .record .spine{width:5px;flex:none;background:var(--t3);}
+  .record.t1 .spine{background:var(--t1);}
+  .record.t2 .spine{background:var(--t2);}
+  .record .body{padding:16px 20px;flex:1;}
+  .record .cn{
+    font-family:'IBM Plex Mono',monospace;font-size:30px;font-weight:600;
+    color:var(--ink);letter-spacing:-.01em;line-height:1;
+  }
+  .record .decode{
+    font-size:13px;color:var(--muted);margin-top:5px;letter-spacing:.01em;
+  }
+  .record .tags{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center;}
+  .tag{
+    font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    padding:4px 9px;border-radius:2px;
+  }
+  .tag.tier1{background:var(--t1bg);color:var(--t1);}
+  .tag.tier2{background:var(--t2bg);color:var(--t2);}
+  .tag.tier3{background:var(--t3bg);color:var(--t3);}
+  .tag.plain{background:var(--moss);color:var(--forest);}
+  .record .why{
+    font-size:13px;color:var(--muted);margin-top:10px;line-height:1.5;
+    padding-top:10px;border-top:1px solid var(--rule);
+  }
+  .record .why b{color:var(--ink);font-weight:600;}
+
+  /* ---- Sections ---- */
+  .section{
+    border:1px solid var(--rule);border-radius:4px;margin-bottom:14px;
+    overflow:hidden;background:#fff;box-shadow:var(--shadow);
+  }
+  .section>h2{
+    margin:0;padding:9px 16px;background:var(--moss);font-size:10px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.1em;color:var(--forest);
+    display:flex;align-items:center;gap:8px;
+  }
+  .section>h2 .hint{
+    margin-left:auto;font-weight:500;letter-spacing:.03em;text-transform:none;
+    font-size:11px;color:var(--muted);
+  }
+  .section.locked>h2{background:#f1f3f1;color:#556059;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 20px;padding:16px;}
+  .full{grid-column:1/-1;}
+  .fld label{
+    display:block;font-weight:600;margin-bottom:5px;font-size:10px;
+    color:var(--muted);text-transform:uppercase;letter-spacing:.07em;
+  }
+  .fld .ro{background:#f7f8f7;color:#525c55;border-style:dashed;}
+  .fld a{font-size:10px;margin-left:7px;letter-spacing:.04em;}
+  /* ---- Results list ----
+     Search has to SHOW what it found. Filtering a dropdown the user then has
+     to open reads as "nothing happened" — which is exactly how it felt. */
+  .results{border:1px solid var(--rule);border-radius:4px;overflow:hidden;background:#fff;box-shadow:var(--shadow);}
+  .results .rh{
+    padding:9px 16px;background:var(--moss);font-size:10px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.1em;color:var(--forest);
+  }
+  .rrow{
+    display:flex;align-items:center;gap:14px;padding:11px 16px;
+    border-top:1px solid var(--rule);cursor:pointer;text-decoration:none;
+  }
+  .rrow:hover{background:var(--moss);}
+  .rrow .rc{
+    font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;
+    color:var(--ink);width:96px;flex:none;
+  }
+  .rrow .rd{font-size:14px;color:var(--ink);width:150px;flex:none;}
+  .rrow .rt{font-size:12px;color:var(--muted);flex:1;overflow:hidden;
+            text-overflow:ellipsis;white-space:nowrap;}
+  .rrow .rs{font-size:11px;color:var(--muted);width:70px;flex:none;text-align:right;}
+  .tierdot{
+    width:8px;height:8px;border-radius:50%;flex:none;background:var(--t3);
+  }
+  .tierdot.d1{background:var(--t1);}
+  .tierdot.d2{background:var(--t2);}
+  .noresults{padding:50px 20px;text-align:center;color:var(--muted);font-size:14px;}
+
+  /* ---- Photos ----
+     Raw Drive URLs in text inputs told a reader nothing and invited editing.
+     These are links, labelled with what the shot actually is. */
+  .photolist{padding:14px 16px;display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;}
+  .photolist a.pl{
+    display:flex;align-items:center;gap:10px;padding:10px 12px;
+    border:1px solid var(--rule);border-radius:3px;background:#fff;
+    text-decoration:none;border-bottom:1px solid var(--rule);
+  }
+  .photolist a.pl:hover{background:var(--moss);border-color:var(--forest2);}
+  .photolist .pn{
+    font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;
+    color:var(--forest);background:var(--moss);border-radius:2px;
+    width:22px;height:22px;flex:none;display:flex;align-items:center;
+    justify-content:center;
+  }
+  .photolist .pt{font-size:13px;color:var(--ink);font-weight:500;}
+  .photolist .pm{font-size:11px;color:var(--muted);margin-left:auto;}
+  .photolist .missing{opacity:.5;border-style:dashed;cursor:default;}
+  .photolist .missing:hover{background:#fff;border-color:var(--rule);}
+  .allphotos{
+    grid-column:1/-1;display:flex;align-items:center;justify-content:center;
+    gap:9px;padding:12px;background:var(--forest);color:#fff;border-radius:3px;
+    font-weight:600;font-size:14px;text-decoration:none;border-bottom:0;
+    letter-spacing:.02em;
+  }
+  .allphotos:hover{background:var(--forest2);border-bottom:0;}
+  @media (max-width:900px){.photolist{grid-template-columns:1fr;}}
+
+  /* Answers are a record, not a form. A table reads as something already
+     written down; a wall of grey read-only inputs invites people to try
+     editing it. */
+  table.answers{width:100%;border-collapse:collapse;}
+  table.answers td{
+    padding:7px 16px;border-bottom:1px solid var(--rule);
+    vertical-align:top;font-size:13px;line-height:1.45;
+  }
+  table.answers tr:last-child td{border-bottom:0;}
+  table.answers td.al{
+    width:290px;color:var(--muted);font-weight:600;font-size:10px;
+    text-transform:uppercase;letter-spacing:.06em;padding-top:9px;
+  }
+  table.answers td.av{color:var(--ink);}
+  #status-msg{font-size:12px;font-weight:600;letter-spacing:.01em;}
+
+  @media (max-width:900px){
+    .grid{grid-template-columns:1fr;}
+    .months{grid-template-columns:repeat(6,1fr);}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Incident Records <span>· Northern Logistics</span></h1>
+    <div class="pills">
+      <span class="pill">On record <b id="pTotal">–</b></span>
+      <span class="pill">Year <b id="pYear">–</b></span>
+      <span class="pill">Showing <b id="pMonth">–</b></span>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <div class="trow">
+      <div class="grp"><label>Case</label>
+        <input type="text" id="exact" placeholder="08042601"/>
+      </div>
+      <div class="grp"><label>Year</label><select id="fYear"><option value="">All</option></select></div>
+      <div class="grp"><label>Month</label>
+        <select id="fMonth">
+          <option value="">All</option>
+          <option value="1">Jan</option><option value="2">Feb</option><option value="3">Mar</option>
+          <option value="4">Apr</option><option value="5">May</option><option value="6">Jun</option>
+          <option value="7">Jul</option><option value="8">Aug</option><option value="9">Sep</option>
+          <option value="10">Oct</option><option value="11">Nov</option><option value="12">Dec</option>
+        </select>
+      </div>
+      <input type="text" id="filter" placeholder="Driver or status…"/>
+      <div class="grp" style="flex:1;"><label>Browse</label><select id="picker"><option value="">Loading…</option></select></div>
+      <span id="count"></span>
+    </div>
+
+    <div class="trow act">
+      <button class="ghost" onclick="toggleTrack()">Incidents by month</button>
+      <button class="ghost" onclick="loadList()" title="Reload the case list">Refresh list</button>
+      <div class="actions">
+        <span id="status-msg"></span>
+        <button class="ghost" id="backBtn" onclick="clearCase()" disabled>Back to list</button>
+        <button class="ghost" id="pdfBtn" onclick="makePdf()" disabled>Open PDF</button>
+        <button class="ghost" id="mailBtn" onclick="emailCase()" disabled>Email record</button>
+        <button class="primary" id="saveBtn" onclick="save()" disabled>Save changes</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="track">
+    <h3 id="trackTitle">Monthly incidents</h3>
+    <div class="months" id="months"></div>
+  </div>
+
+  <main id="form">
+    <div class="empty">
+      <h2>Open a case to begin</h2>
+      <p>Type a case number above, or browse the list.</p>
+    </div>
+  </main>
+
+<script>
+  var ALL = [];       // full case list (with parsed date)
+  var CURRENT = null;  // loaded record
+
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){
+    return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+
+  // Parse MMDDYY(+seq) -> {month,day,year,seq}
+  function parseCase(cn){
+    var d=String(cn).replace(/\D/g,'');
+    // A case number is MMDDYY plus a sequence of at least two digits. Anything
+    // shorter than 8 has had a leading zero stripped by number formatting —
+    // pad it back rather than discarding the record from the counts.
+    if(d.length===7) d='0'+d;
+    if(d.length<6) return null;
+    var m=parseInt(d.substr(0,2),10), day=parseInt(d.substr(2,2),10), y=parseInt(d.substr(4,2),10);
+    if(m<1||m>12||day<1||day>31) return null;
+    return {month:m, day:day, year:2000+y, seq:d.substr(6), digits:d};
+  }
+  var MON=['','January','February','March','April','May','June',
+           'July','August','September','October','November','December'];
+  var MONS=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  function ordinal(n){
+    n=parseInt(n,10); if(isNaN(n)) return '';
+    var s=['th','st','nd','rd'], v=n%100;
+    return n+(s[(v-20)%10]||s[v]||s[0]);
+  }
+
+  function loadList(){
+    google.script.run.withSuccessHandler(function(list){
+      ALL=(list||[]).map(function(c){c._p=parseCase(c.caseNumber);return c;});
+      buildYearOptions(); renderPicker(); renderTracking(); renderResults();
+    }).withFailureHandler(err).getCaseList();
+  }
+
+  function buildYearOptions(){
+    var years={};
+    ALL.forEach(function(c){ if(c._p) years[c._p.year]=1; });
+    var sel=document.getElementById('fYear'), keep=sel.value;
+    var opts=['<option value="">All</option>'];
+    Object.keys(years).sort().reverse().forEach(function(y){opts.push('<option value="'+y+'">'+y+'</option>');});
+    sel.innerHTML=opts.join('');
+    if(keep) sel.value=keep;
+  }
+
+  function currentFilter(){
+    return {
+      year:  document.getElementById('fYear').value,
+      month: document.getElementById('fMonth').value,
+      text:  (document.getElementById('filter').value||'').toLowerCase(),
+      // The case box narrows as you type rather than waiting for Open. A
+      // partial number is a perfectly good search — "0804" should show you
+      // everything from that day.
+      caseText: (document.getElementById('exact').value||'').trim().toLowerCase()
+    };
+  }
+
+  function matches(c,f){
+    if(f.year && (!c._p || String(c._p.year)!==f.year)) return false;
+    if(f.month && (!c._p || String(c._p.month)!==f.month)) return false;
+    if(f.text){
+      var hay=(c.caseNumber+' '+c.driver+' '+c.status+' '+c.type+' '+c.tier).toLowerCase();
+      if(hay.indexOf(f.text)<0) return false;
+    }
+    if(f.caseText){
+      // Compare on digits only, so a number typed without its leading zero
+      // still finds the case it belongs to.
+      var cn=String(c.caseNumber).replace(/\D/g,'');
+      var q =f.caseText.replace(/\D/g,'');
+      if(q && cn.indexOf(q)<0) return false;
+    }
+    return true;
+  }
+
+  function renderPicker(){
+    var f=currentFilter();
+    var list=ALL.filter(function(c){return matches(c,f);});
+    var sel=document.getElementById('picker'), keep=sel.value;
+    var opts=['<option value="">'+list.length+' case'+(list.length===1?'':'s')+'</option>'];
+    list.forEach(function(c){
+      var lbl=c.caseNumber+(c.driver?('   '+c.driver):'')+(c.status?('   \u00b7  '+c.status):'');
+      opts.push('<option value="'+esc(c.caseNumber)+'">'+esc(lbl)+'</option>');
+    });
+    sel.innerHTML=opts.join('');
+    if(keep) sel.value=keep;
+
+    var f2=currentFilter();
+    var yr=f2.year, total=ALL.length;
+    var yrCount=yr?ALL.filter(function(c){return c._p&&String(c._p.year)===yr;}).length:total;
+    document.getElementById('pTotal').textContent=total;
+    document.getElementById('pYear').textContent=yr?yrCount:'All';
+    document.getElementById('pMonth').textContent=list.length;
+    document.getElementById('count').textContent=
+      (list.length===total)?'':(list.length+' of '+total);
+  }
+
+  // Shown in the main area whenever no case is open. This is what makes the
+  // filters feel like search rather than a dropdown that quietly changed.
+  function renderResults(){
+    if(CURRENT) return;                       // a case is open; leave it alone
+    var f=currentFilter();
+    var list=ALL.filter(function(c){return matches(c,f);});
+    var filtering=!!(f.year||f.month||f.text);
+
+    if(!list.length){
+      document.getElementById('form').innerHTML=
+        '<div class="noresults">No cases match'+(f.text?' \u201c'+esc(f.text)+'\u201d':'')+'.</div>';
+      return;
+    }
+    var rows=list.map(function(c){
+      var t=String(c.tier||'').trim();
+      return '<a class="rrow" href="#" onclick="loadCase(\''+esc(c.caseNumber)+'\');return false;">'+
+        '<span class="tierdot d'+esc(t)+'"></span>'+
+        '<span class="rc">'+esc(c.caseNumber)+'</span>'+
+        '<span class="rd">'+esc(c.driver||'')+'</span>'+
+        '<span class="rt">'+esc(c.type||'')+'</span>'+
+        '<span class="rs">'+esc(c.status||'')+'</span></a>';
+    }).join('');
+
+    document.getElementById('form').innerHTML=
+      '<div class="results"><div class="rh">'+
+        (filtering ? list.length+' matching case'+(list.length===1?'':'s')
+                   : 'All cases \u2014 newest first')+
+      '</div>'+rows+'</div>';
+  }
+
+  function renderTracking(){
+    var yr=document.getElementById('fYear').value;
+    var counts=[0,0,0,0,0,0,0,0,0,0,0,0];
+    ALL.forEach(function(c){
+      if(!c._p) return;
+      if(yr && String(c._p.year)!==yr) return;
+      counts[c._p.month-1]++;
+    });
+    var html='';
+    for(var i=0;i<12;i++){
+      html+='<div class="mcard'+(counts[i]?'':' zero')+'"><div class="m">'+MONS[i+1]+'</div><div class="n">'+counts[i]+'</div></div>';
+    }
+    document.getElementById('months').innerHTML=html;
+    document.getElementById('trackTitle').textContent=
+      'Monthly incidents \u2014 '+(yr?yr:'all years on record');
+  }
+
+  function toggleTrack(){
+    var t=document.getElementById('track');
+    t.style.display=(t.style.display==='block')?'none':'block';
+    if(t.style.display==='block') renderTracking();
+  }
+
+  ['fYear','fMonth','filter','exact'].forEach(function(id){
+    document.getElementById(id).addEventListener('input',function(){
+      // Editing any filter while a record is open means the user is looking
+      // for something else — drop back to the list rather than leaving the
+      // old record on screen contradicting the filters above it.
+      if(CURRENT && id!=='exact') CURRENT=null;
+      if(CURRENT && id==='exact' &&
+         document.getElementById('exact').value!==CURRENT.values['Case Number']) CURRENT=null;
+      if(!CURRENT){
+        ['saveBtn','pdfBtn','mailBtn','backBtn'].forEach(function(b){
+          document.getElementById(b).disabled=true;
+        });
+      }
+      renderPicker();renderTracking();renderResults();
+    });
+  });
+
+  document.getElementById('picker').addEventListener('change',function(){
+    if(this.value) loadCase(this.value);
+  });
+  // Enter opens the case when the filters have narrowed to exactly one. Typing
+  // a full case number and hitting Enter should not require reaching for the
+  // mouse; anything less specific stays on the list.
+  document.getElementById('exact').addEventListener('keydown',function(e){
+    if(e.key!=='Enter') return;
+    var list=ALL.filter(function(c){return matches(c,currentFilter());});
+    if(list.length===1) loadCase(list[0].caseNumber);
+  });
+
+  // Back to the list without reloading the dialog.
+  function clearCase(){
+    CURRENT=null;
+    document.getElementById('exact').value='';
+    ['saveBtn','pdfBtn','mailBtn','backBtn'].forEach(function(id){
+      document.getElementById(id).disabled=true;
+    });
+    msg('','#6c7870');
+    renderResults();
+  }
+  function loadCase(cn){
+    msg('Opening '+cn+'\u2026','#6c7870');
+    google.script.run.withSuccessHandler(render).withFailureHandler(err).getIncident(cn);
+  }
+
+  function isUrl(v){return /^https?:\/\//i.test(String(v||''));}
+
+  // Identifiers get set in mono — they are things you read aloud to someone.
+  var MONO_FIELDS=['Case Number','Driver Phone','Truck','Trailer','Timestamp',
+                   'Claimed At','Closed At','Incident ID','Breakdown ID'];
+
+  function fieldHtml(h){
+    var locked=CURRENT.locked.indexOf(h)>-1;
+    var isArea=CURRENT.textareas.indexOf(h)>-1;
+    var v=CURRENT.values[h];
+    var id='f_'+encodeURIComponent(h);
+    var full=(isArea||h==='Description')?' full':'';
+    var link=isUrl(v)?' <a href="'+esc(v)+'" target="_blank">open</a>':'';
+    var mono=MONO_FIELDS.indexOf(h)>-1?' mono':'';
+    var cls=(locked?'ro':'')+mono;
+    var ctrl=isArea
+      ? '<textarea id="'+id+'" data-h="'+esc(h)+'" class="'+cls+'" '+(locked?'readonly':'')+'>'+esc(v)+'</textarea>'
+      : '<input type="text" id="'+id+'" data-h="'+esc(h)+'" class="'+cls+'" value="'+esc(v)+'" '+(locked?'readonly':'')+'/>';
+    return '<div class="fld'+full+'"><label>'+esc(h)+link+'</label>'+ctrl+'</div>';
+  }
+
+  function render(data){
+    CURRENT=data;
+    var V=CURRENT.values;
+    var cn=V['Case Number'];
+    var p=parseCase(cn);
+
+    // The case number decoded. It encodes a date and a same-day sequence, and
+    // nothing else on screen would tell you that.
+    var decode='';
+    if(p){
+      decode=MON[p.month]+' '+p.day+', '+p.year;
+      var seq=parseInt(p.seq,10);
+      if(!isNaN(seq)) decode+='  \u00b7  '+ordinal(seq)+' incident of '+p.year;
+    }
+
+    var tier=String(V['Tier']||'').trim();
+    var tierCls=(tier==='1'?'t1':tier==='2'?'t2':'t3');
+    var tierLbl=(tier==='1'?'Tier 1 \u2014 call immediately'
+               :tier==='2'?'Tier 2 \u2014 same-day callback'
+               :tier==='3'?'Tier 3 \u2014 48-hour queue':'Tier \u2014');
+
+    var tags='<span class="tag tier'+(tier||'3')+'">'+esc(tierLbl)+'</span>';
+    if(V['Status'])  tags+='<span class="tag plain">'+esc(V['Status'])+'</span>';
+    if(V['Lane'])    tags+='<span class="tag plain">'+esc(V['Lane'])+'</span>';
+    if(V['Type'])    tags+='<span style="font-size:13px;color:#6c7870;">'+esc(V['Type'])+'</span>';
+
+    var why=V['Tier Reasons']
+      ? '<div class="why"><b>Why this tier:</b> '+esc(V['Tier Reasons'])+'</div>' : '';
+
+    var head=
+      '<div class="record '+tierCls+'"><div class="spine"></div><div class="body">'+
+        '<div class="cn mono">'+esc(cn)+'</div>'+
+        '<div class="decode">'+esc(decode)+'</div>'+
+        '<div class="tags">'+tags+'</div>'+
+        why+
+      '</div></div>';
+
+    var locked=[],editable=[],photos=[];
+    data.headers.forEach(function(h){
+      if(/photo/i.test(h)) photos.push(h);
+      else if(data.locked.indexOf(h)>-1) locked.push(h);
+      else editable.push(h);
+    });
+
+    function block(t,arr,cls,hint){
+      if(!arr.length) return '';
+      return '<div class="section '+(cls||'')+'"><h2>'+t+
+             (hint?'<span class="hint">'+hint+'</span>':'')+
+             '</h2><div class="grid">'+arr.map(fieldHtml).join('')+'</div></div>';
+    }
+
+    // Everything the driver answered, unpacked from the payload. These are the
+    // ~18 fields the 2026 workbook showed that would otherwise be invisible
+    // here — injury type, witnesses, police details, who got the ticket.
+    var answersBlock='';
+    if(data.answers && data.answers.length){
+      answersBlock='<div class="section locked"><h2>Everything the driver answered'+
+        '<span class="hint">'+data.answers.length+' answers \u00b7 read-only</span></h2>'+
+        '<table class="answers">'+
+        data.answers.map(function(a){
+          return '<tr><td class="al">'+esc(a.label)+'</td><td class="av">'+esc(a.value)+'</td></tr>';
+        }).join('')+
+        '</table></div>';
+    }
+
+    // Photos as labelled links rather than raw URLs in text inputs. The column
+    // headers say "Photo — Other", which tells a first-time reader nothing;
+    // these say what the shot actually is.
+    var PHOTO_LABELS={
+      'Photo \u2014 Scene':      ['1','Wide shot of the scene'],
+      'Photo \u2014 Our Truck':  ['2','Damage to our equipment'],
+      'Photo \u2014 Other':      ['3','The other vehicle or property'],
+      'Photos \u2014 Folder':    ['','All photos']
+    };
+    var photoRows='', folderUrl='';
+    photos.forEach(function(h){
+      var v=V[h];
+      if(/folder/i.test(h)){ folderUrl=v||''; return; }
+      var meta=PHOTO_LABELS[h]||['',h];
+      if(isUrl(v)){
+        photoRows+='<a class="pl" href="'+esc(v)+'" target="_blank">'+
+          '<span class="pn">'+esc(meta[0])+'</span>'+
+          '<span class="pt">'+esc(meta[1])+'</span>'+
+          '<span class="pm">open \u2197</span></a>';
+      } else {
+        photoRows+='<span class="pl missing">'+
+          '<span class="pn">'+esc(meta[0])+'</span>'+
+          '<span class="pt">'+esc(meta[1])+'</span>'+
+          '<span class="pm">not provided</span></span>';
+      }
+    });
+    // The folder holds every shot, including any beyond the three named
+    // columns — the other driver's licence, insurance, the ticket, freight.
+    if(folderUrl){
+      photoRows+='<a class="allphotos" href="'+esc(folderUrl)+'" target="_blank">'+
+        'Open all photos for this incident \u2197</a>';
+    }
+    var photosBlock=photoRows
+      ? '<div class="section"><h2>Photos<span class="hint">Stored in Drive</span></h2>'+
+        '<div class="photolist">'+photoRows+'</div></div>'
+      : '';
+
+    var html=head
+      +block('Office and investigation',editable,'','Editable \u2014 every change is logged')
+      +photosBlock
+      +block('What the driver reported',locked,'locked','Read-only \u2014 corrections go in the log below')
+      +answersBlock
+      +'<div class="section"><h2>Add to the update log</h2><div class="grid"><div class="fld full">'
+      +'<label>What changed, and how you know</label>'
+      +'<textarea id="updnote" placeholder="Police report received, other party\u2019s insurer called, tractor released from the shop\u2026"></textarea>'
+      +'</div></div></div>';
+
+    document.getElementById('form').innerHTML=html;
+    document.getElementById('saveBtn').disabled=false;
+    document.getElementById('pdfBtn').disabled=false;
+    document.getElementById('mailBtn').disabled=false;
+    document.getElementById('backBtn').disabled=false;
+    document.getElementById('exact').value=cn;
+    msg('Opened '+cn,'#1e5631');
+  }
+
+  // --- PDF ------------------------------------------------------------------
+  // Built server-side and opened in a real tab rather than printed from this
+  // dialog. A Sheets modal is a sandboxed iframe and browsers disagree about
+  // what it may print; a real PDF prints the way everyone expects, and the copy
+  // is filed with the incident.
+  function makePdf(){
+    if(!CURRENT) return;
+    var cn=CURRENT.values['Case Number'];
+    document.getElementById('pdfBtn').disabled=true;
+    msg('Building PDF\u2026','#6c7870');
+    google.script.run.withSuccessHandler(function(res){
+      document.getElementById('pdfBtn').disabled=false;
+      msg('PDF ready','#1e5631');
+      window.open(res.url,'_blank');
+    }).withFailureHandler(function(e){
+      document.getElementById('pdfBtn').disabled=false; err(e);
+    }).makeIncidentPdf(cn);
+  }
+
+  // --- Email ----------------------------------------------------------------
+  function emailCase(){
+    if(!CURRENT) return;
+    var cn=CURRENT.values['Case Number'];
+    var to=window.prompt(
+      'Email the full record for case '+cn+' to:\n\n'+
+      'Leave as-is for safety, or type another address \u2014 an insurer, an '+
+      'attorney, the driver\u2019s manager.',
+      'safety@norloworld.com');
+    if(to===null) return;
+    var note=window.prompt('Optional message to include in the email body:','');
+    if(note===null) return;
+
+    document.getElementById('mailBtn').disabled=true;
+    msg('Sending\u2026','#6c7870');
+    google.script.run.withSuccessHandler(function(m){
+      document.getElementById('mailBtn').disabled=false;
+      msg(m,'#1e5631');
+    }).withFailureHandler(function(e){
+      document.getElementById('mailBtn').disabled=false; err(e);
+    }).emailIncidentPdf(cn,to,note);
+  }
+
+  function save(){
+    if(!CURRENT) return;
+    var edits={},changedList=[];
+    document.querySelectorAll('[data-h]').forEach(function(el){
+      var h=el.getAttribute('data-h');
+      if(CURRENT.locked.indexOf(h)>-1) return;
+      edits[h]=el.value;
+      var was=CURRENT.values[h]==null?'':String(CURRENT.values[h]);
+      if(was!==String(el.value)) changedList.push(h);
+    });
+    var note=(document.getElementById('updnote')||{}).value||'';
+    var cn=CURRENT.values['Case Number'];
+
+    if(!changedList.length && !note.trim()){
+      msg('Nothing to save \u2014 no fields changed','#6c7870');
+      return;
+    }
+
+    var lines=['Save changes to case '+cn+'?',''];
+    if(changedList.length){
+      lines.push(changedList.length+' field'+(changedList.length===1?'':'s')+' changed:');
+      changedList.slice(0,12).forEach(function(h){lines.push('   \u2022 '+h);});
+      if(changedList.length>12) lines.push('   \u2022 \u2026and '+(changedList.length-12)+' more');
+    }
+    if(note.trim()){
+      if(changedList.length) lines.push('');
+      lines.push('Plus an update note will be logged.');
+    }
+    lines.push('','Every change is recorded in IncidentUpdates with your name.');
+    if(!window.confirm(lines.join('\n'))) return;
+
+    document.getElementById('saveBtn').disabled=true; msg('Saving\u2026','#6c7870');
+    google.script.run.withSuccessHandler(function(res){
+      document.getElementById('saveBtn').disabled=false;
+      msg('Saved \u2014 '+res.changed+' field'+(res.changed===1?'':'s')+' changed'+(note?', note logged':''),'#1e5631');
+      loadList();
+    }).withFailureHandler(function(e){document.getElementById('saveBtn').disabled=false;err(e);})
+      .saveIncident(cn,edits,note);
+  }
+
+  function msg(t,c){var m=document.getElementById('status-msg');m.textContent=t;m.style.color=c||'#6c7870';}
+  function err(e){msg((e&&e.message?e.message:String(e)),'#a8321e');}
+
+  loadList();
+</script>
+</body>
+</html>

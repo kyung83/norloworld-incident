@@ -360,6 +360,9 @@ export default function IncidentFormWizard() {
 
     gateFields
       .filter((f) => f.key !== FIRST_GATE)
+      // Gate-level showIf: skip a conditional gate until its condition holds
+      // (e.g. otherPartiesInjured only when anyoneInjured === "Yes").
+      .filter((f) => !f.showIf || values[f.showIf.key] === f.showIf.equals)
       .forEach((f) => out.push({ kind: "gate", field: f }));
 
     out.push({ kind: "types" });
