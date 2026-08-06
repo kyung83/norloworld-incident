@@ -7,7 +7,6 @@
  * already in use at Norlo:
  *   - doGet / doPost switch on a ?route= parameter
  *   - convert2DArrayToObjects() for sheet reads
- *   - category/subcategory dropdowns driven from a sheet tab, not from code
  *   - errors appended to the shared error-log spreadsheet
  *   - notification handled by norlo-twilio-sms.gs in CLAIM mode
  *
@@ -46,7 +45,6 @@ var INC = {
 
   DATA_TAB:       'IncidentsData',
   ROSTER_ROLE_TAB: 'Recruiting',      // driver roster — Division and ROLE columns
-  CATEGORIES_TAB: 'Incident Categories',   // same shape as 'Breakdowns Categories'
   ROSTER_TAB:     'Roster',
 
   // Drive folder (created in the deploying account's My Drive) holding incident
@@ -92,9 +90,8 @@ function doGet(e) {
     // Everything the driver-facing form needs to render.
     case 'getIncidentForm':
       return json_({
-        categories: getIncidentCategories(),
-        drivers:    getDrivers(),
-        states:     getStates()
+        drivers: getDrivers(),
+        states:  getStates()
       });
 
     // Office-side queue for the dashboard.
@@ -411,7 +408,9 @@ function computeSeverity_(p) {
   if (yes_(p.fatality))              reasons.push('Fatality');
   if (yes_(p.anyoneInjured))         reasons.push('Injury reported');
   if (yes_(p.medicalAwayFromScene))  reasons.push('Medical treatment away from scene');
-  if (yes_(p.otherVehicleInvolved))  reasons.push('Another vehicle involved');
+  if (otherPartyPresent_(p)) {
+    reasons.push('Other party still on scene — settle it before police are involved');
+  }
   if (yes_(p.pedestrianInvolved))    reasons.push('Pedestrian or cyclist involved');
   if (yes_(p.rollover))              reasons.push('Rollover or jackknife');
   if (yes_(p.hazmatOrFuelSpill))     reasons.push('Fuel, oil, or hazmat spill');
@@ -419,17 +418,17 @@ function computeSeverity_(p) {
 
   // Police attending a parking-lot scrape is not by itself a wakeup. Police
   // attending something with another party in it is.
-  if (yes_(p.policeOnScene) && yes_(p.otherPartyInvolved)) {
-    reasons.push('Police on scene with another party involved');
-  }
+  // Police alone was never the trigger, and with presence now carrying that
+  // weight it is not one at all. An officer taking a deer report is paperwork.
+
 
   // 49 CFR 382.303. A citation on its own is a morning problem. A citation
   // combined with a tow-away or an injury starts a testing clock: alcohol is
   // abandoned at 8 hours, controlled substances at 32. This cannot wait for
   // the morning queue, which is exactly why it is checked as a COMBINATION
   // and not as a property of the citation field alone.
-  if (yes_(p.citationIssued) && (yes_(p.towRequired) || yes_(p.medicalAwayFromScene))) {
-    reasons.push('Citation with tow or injury — DOT post-accident testing clock started');
+  if (citationLikely_(p) && (yes_(p.towRequired) || yes_(p.medicalAwayFromScene))) {
+    reasons.push('Citation or expected citation with tow or injury — DOT post-accident testing clock started');
   }
 
   if (reasons.length) {
@@ -442,10 +441,16 @@ function computeSeverity_(p) {
 
   var gates = [
     'anyoneInjured', 'medicalAwayFromScene', 'pedestrianInvolved',
-    'otherVehicleInvolved', 'otherPartyInvolved', 'policeOnScene',
-    'citationIssued', 'rollover', 'hazmatOrFuelSpill',
+    'otherVehicleInvolved', 'otherPartyInvolved',
+    'rollover', 'hazmatOrFuelSpill',
     'truckDrivable', 'towRequired', 'vehicleStuck'
   ];
+  // policeOnScene and citationIssued are deliberately NOT in that list. Both
+  // now have an "Unknown" option that is a legitimate answer rather than a
+  // skipped question, and citationIssued is asked at the END of the form — a
+  // driver who abandons before reaching it would otherwise escalate every time.
+  // otherPartyPresent is only asked when another party is involved, so it is
+  // checked separately below rather than as a blanket gate.
   var missing = [];
   for (var i = 0; i < gates.length; i++) {
     var v = p[gates[i]];
@@ -454,6 +459,14 @@ function computeSeverity_(p) {
       missing.push(gates[i]);
     }
   }
+  // Asked only when another party is involved — but when it was asked and not
+  // answered, we cannot tell whether anyone is standing there, and that is the
+  // difference between a call and a morning text.
+  if (yes_(p.otherPartyInvolved)) {
+    var pres = String(p.otherPartyPresent || '').trim().toLowerCase();
+    if (!pres || pres === 'unknown') missing.push('otherPartyPresent');
+  }
+
   if (missing.length) {
     return {
       tier: 1,
@@ -465,7 +478,14 @@ function computeSeverity_(p) {
   // ---- TIER 2 ---------------------------------------------------------------
   // Real, but it keeps until someone is awake and looking.
 
-  if (yes_(p.citationIssued))      reasons.push('Citation issued, no tow or injury');
+  if (citationLikely_(p))          reasons.push('Citation issued, no tow or injury');
+  // Someone else's vehicle or property, and nobody there to talk to. Mark's
+  // case: the driver documents it, safety picks it up in the morning, and the
+  // damaged fence is exactly as damaged then as it is now. Real, not urgent —
+  // which is Tier 2, not a silent Tier 3 log nobody is asked to acknowledge.
+  if (yes_(p.otherPartyInvolved) && !otherPartyPresent_(p)) {
+    reasons.push('Someone else\'s property or vehicle, other party not present');
+  }
   if (yes_(p.freightDamaged))      reasons.push('Freight damaged');
   if (no_(p.truckDrivable))        reasons.push('Truck not drivable');
   if (yes_(p.towRequired))         reasons.push('Tow required');
@@ -567,27 +587,26 @@ function createIncident(p) {
       pick_(p, 'truck', 'truckNumber'),                   // E  Truck
       pick_(p, 'trailer', 'trailerNumber'),               // F  Trailer
       typeList_(p),                                       // G  Type
-      pick_(p, 'subCategory', 'subcategory'),             // H  Subcategory
-      pick_(p, 'locationName', 'siteName', 'location', 'streetAddress'), // I  Location
-      pick_(p, 'city'),                                   // J  City
-      pick_(p, 'state'),                                  // K  State
-      pick_(p, 'description', 'otherExplain', 'notes'),   // L  Description
-      sev.tier,                                           // M  Tier
-      sev.reasons.join(' | '),                            // N  Tier Reasons
-      sev.lane,                                           // O  Lane
-      'New',                                              // P  Status
-      '',                                                 // Q  Claimed By
-      '',                                                 // R  Claimed At
-      pick_(p, 'notApplicable'),                          // S  Not applicable
-      pick_(p, 'answeredNo'),                             // T  Answered no
-      photoCell_(p.photoScene),                           // U  Photo — Scene
-      photoCell_(p.photoOurEquipment),                    // V  Photo — Our Truck
-      photoCell_(p.photoOtherProperty),                   // W  Photo — Other
-      photoFolderUrl,                                     // X  Photos — Folder
-      '',                                                 // Y  Office Notes
-      pick_(p, 'breakdownId'),                            // Z  Breakdown ID
-      id,                                                 // AA Incident ID
-      JSON.stringify(p)                                   // AB Payload (hidden)
+      pick_(p, 'locationName', 'siteName', 'location', 'streetAddress'), // H  Location
+      pick_(p, 'city'),                                   // I  City
+      pick_(p, 'state'),                                  // J  State
+      pick_(p, 'description', 'otherExplain', 'notes'),   // K  Description
+      sev.tier,                                           // L  Tier
+      sev.reasons.join(' | '),                            // M  Tier Reasons
+      sev.lane,                                           // N  Lane
+      'New',                                              // O  Status
+      '',                                                 // P  Claimed By
+      '',                                                 // Q  Claimed At
+      pick_(p, 'notApplicable'),                          // R  Not applicable
+      pick_(p, 'answeredNo'),                             // S  Answered no
+      photoCell_(p.photoScene),                           // T  Photo — Scene
+      photoCell_(p.photoOurEquipment),                    // U  Photo — Our Truck
+      photoCell_(p.photoOtherProperty),                   // V  Photo — Other
+      photoFolderUrl,                                     // W  Photos — Folder
+      '',                                                 // X  Office Notes
+      pick_(p, 'breakdownId'),                            // Y  Breakdown ID
+      id,                                                 // Z  Incident ID
+      JSON.stringify(p)                                   // AA Payload (hidden)
     ]));
     rowNum = sheet.getLastRow();
     }
@@ -776,41 +795,6 @@ function getIncidentsOpen() {
 
 
 // =============================================================================
-// SECTION 6 — CATEGORIES
-// =============================================================================
-
-/**
- * Identical in shape to getAllCategoriesAndSubCategories() on the breakdown
- * side: row 1 holds the incident types, each column below holds that type's
- * sub-questions. Riley and Mark reword dropdowns by editing the sheet — no
- * deploy, no ticket to IT.
- */
-function getIncidentCategories(sheetName) {
-  sheetName = sheetName || INC.CATEGORIES_TAB;
-  var sheet = tab_(INC.MASTER_SHEET_ID, sheetName);
-
-  var lastColumn = sheet.getLastColumn();
-  var lastRow    = sheet.getLastRow();
-  if (lastRow < 2 || lastColumn < 2) return {};
-
-  var categoryRow     = sheet.getRange(1, 2, 1, lastColumn - 1).getValues()[0];
-  var subCategoryRows = sheet.getRange(2, 2, lastRow - 1, lastColumn - 1).getValues();
-
-  var categoryData = {};
-  categoryRow.forEach(function (category, columnIndex) {
-    if (category !== '') {
-      categoryData[category] = [];
-      subCategoryRows.forEach(function (row) {
-        if (row[columnIndex] !== '') categoryData[category].push(row[columnIndex]);
-      });
-    }
-  });
-
-  return categoryData;
-}
-
-
-// =============================================================================
 // SECTION 7 — HELPERS
 // =============================================================================
 
@@ -994,6 +978,35 @@ function typeList_(p) {
   var t = p.incidentTypes || p.incidentType || p.types;
   if (Array.isArray(t)) return t.join(', ');
   return t ? String(t) : '';
+}
+
+/**
+ * The other party still standing there — the Tier 1 trigger.
+ *
+ * Not "another vehicle involved". Mark's rule: a call is worth making when
+ * safety can still change the outcome, and that only holds while there is
+ * someone to talk to. Once they have driven off the damage keeps until morning.
+ */
+function otherPartyPresent_(p) {
+  return String(p.otherPartyPresent || '').toLowerCase().indexOf('yes') === 0;
+}
+
+/**
+ * A citation, issued or promised.
+ *
+ * "Officer said one is coming" counts. The alternative is a driver honestly
+ * answering No and the DOT testing window closing — alcohol at 8 hours,
+ * controlled substances at 32 — before anyone knows a citation was on its way.
+ */
+function citationLikely_(p) {
+  var c = String(p.citationIssued || '').toLowerCase();
+  return c.indexOf('yes') === 0 || c.indexOf('coming') > -1;
+}
+
+/** Police here, or on their way. Both mean a report is likely. */
+function policeInvolved_(p) {
+  var v = String(p.policeOnScene || '').toLowerCase();
+  return v.indexOf('yes') === 0 || v.indexOf('not here yet') > -1;
 }
 
 function yes_(v) {
@@ -1252,8 +1265,23 @@ function runSelfTest() {
   t = baseline(); t.citationIssued = 'Yes'; t.towRequired = 'Yes';
   check('Citation WITH tow (DOT testing clock)', computeSeverity_(t).tier, 1);
 
-  t = baseline(); t.otherVehicleInvolved = 'Yes';
-  check('Another vehicle involved', computeSeverity_(t).tier, 1);
+  t = baseline(); t.citationIssued = 'Officer said one is coming'; t.towRequired = 'Yes';
+  check('Expected citation WITH tow (DOT clock)', computeSeverity_(t).tier, 1);
+
+  t = baseline(); t.policeOnScene = 'Yes, they are here';
+  check('Police taking a deer report, no party', computeSeverity_(t).tier, 3);
+
+  t = baseline(); t.otherPartyInvolved = 'Yes';
+  t.otherVehicleInvolved = 'Yes'; t.otherPartyPresent = 'Yes, they are here';
+  check('Other party STILL ON SCENE', computeSeverity_(t).tier, 1);
+
+  t = baseline(); t.otherPartyInvolved = 'Yes';
+  t.otherVehicleInvolved = 'Yes'; t.otherPartyPresent = 'No, they already left';
+  check('Other party GONE — morning, not a call', computeSeverity_(t).tier, 2);
+
+  t = baseline(); t.otherPartyInvolved = 'Yes';
+  t.otherPartyPresent = 'Nobody was ever there';
+  check('Property damage, nobody there', computeSeverity_(t).tier, 2);
 
   t = baseline(); t.anyoneInjured = 'Yes';
   check('Someone hurt', computeSeverity_(t).tier, 1);
@@ -1261,8 +1289,11 @@ function runSelfTest() {
   t = baseline(); delete t.truckDrivable;
   check('Gate left blank (fail upward)', computeSeverity_(t).tier, 1);
 
-  t = baseline(); t.citationIssued = 'Unknown';
+  t = baseline(); t.truckDrivable = 'Unknown';
   check('Gate answered Unknown (fail upward)', computeSeverity_(t).tier, 1);
+
+  t = baseline(); t.otherPartyInvolved = 'Yes';   // presence never answered
+  check('Other party involved, presence blank', computeSeverity_(t).tier, 1);
 
   t = baseline(); t.driverRequestsContact = 'Yes';
   check('Driver asks to be called', computeSeverity_(t).tier, 1);

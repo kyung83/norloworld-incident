@@ -98,9 +98,18 @@ export const SECTIONS = [
       { key: "medicalAwayFromScene", label: "Did anyone leave the scene for medical treatment?", type: "select", options: YNU, required: true },
       { key: "pedestrianInvolved", label: "Was a pedestrian or cyclist involved?", type: "select", options: YNU, required: true },
       { key: "otherVehicleInvolved", label: "Was another vehicle involved?", type: "select", options: YNU, required: true },
-      { key: "otherPartyInvolved", label: "Did you hit anything that isn't ours?", sublabel: "A building, fence, pole, parked car, a customer's dock — anything belonging to someone else.", type: "select", options: YNU, required: true, showIf: { key: "otherVehicleInvolved", notEquals: "Yes" } },
-      { key: "policeOnScene", label: "Are police on scene, or was a report taken?", type: "select", options: YNU, required: true },
-      { key: "citationIssued", label: "Was anyone issued a ticket or citation?", type: "select", options: YNU, required: true },
+      // Always asked — the umbrella "another party" gate for vehicle AND
+      // property. It must not be gated behind otherVehicleInvolved: a moving
+      // collision would then never reach it, the presence question below would
+      // never show, and the backend would escalate the blank to Tier 1.
+      { key: "otherPartyInvolved", label: "Is anyone else's vehicle or property involved?", sublabel: "Their car, a building, a fence, a parked vehicle — anything not ours. Whether you hit them or they hit you.", type: "select", options: YNU, required: true },
+      // "Nobody was ever there" is a real third case — an unattended parked car,
+      // a fence, a closed dock. Different from a driver who left, and safety will
+      // want to tell them apart when the claim comes in.
+      { key: "otherPartyPresent", label: "Is the other driver or owner still there with you?", type: "select", options: ["Yes, they are here", "No, they already left", "Nobody was ever there"], required: true, showIf: { key: "otherPartyInvolved", equals: "Yes" } },
+      // "Called, not here yet" is the state that matters most: the window is
+      // closing but has not shut. Yes/No collapsed it into the wrong answer.
+      { key: "policeOnScene", label: "Are police on scene?", type: "select", options: ["Yes, they are here", "Called, not here yet", "No", "Unknown"], required: true },
       { key: "rollover", label: "Did the truck roll over or jackknife?", type: "select", options: YNU, required: true },
       { key: "hazmatOrFuelSpill", label: "Is fuel, oil, or any other fluid leaking?", type: "select", options: YNU, required: true },
       { key: "truckDrivable", label: "Is the truck safe to drive right now?", type: "select", options: YNU, required: true },
@@ -194,24 +203,18 @@ export const SECTIONS = [
           { key: "photoOurEquipment", label: "Close-ups of damage to Northern equipment", type: "photo", multiple: true, hint: "One for each thing that's damaged. Include the unit number in at least one shot.", required: true },
         ],
       },
-      // Locked: the gates already answered these.
-      {
-        key: "ticketRow",
-        type: "checklistRow",
-        label: "Was a ticket issued?",
-        answeredBy: "citationIssued",
-        revealOn: "Yes",
-        fields: [
-          { key: "photoTicket", label: "Picture of the ticket", type: "photo", required: true },
-          { key: "ticketWho", label: "Who received it?", type: "text", required: true },
-        ],
-      },
+      // Locked: the gate already answered this. (The ticket row moved to the
+      // citationFinal section — the citation question is now asked at the very
+      // end, after the checklist, so it can't gate a photo here.)
       {
         key: "policeRow",
         type: "checklistRow",
         label: "Were police involved?",
         answeredBy: "policeOnScene",
-        revealOn: "Yes",
+        // Only when police are actually on scene is there a report or card to
+        // photograph. "Called, not here yet" leaves nothing to collect; the
+        // office follows up. Matches the new policeOnScene option exactly.
+        revealOn: "Yes, they are here",
         naReasons: ["Officer did not provide anything", "Report will be mailed later", "Still on scene waiting"],
         fields: [
           { key: "photoPoliceReport", label: "Picture of the report, info exchange page, or the officer's card", type: "photo", hint: "Whatever they hand you. The crash report number is the important part.", required: true },
@@ -296,7 +299,8 @@ export const SECTIONS = [
     // witness, or a stuck truck where police took a report, still needs one.
     alsoShowIf: [
       { key: "otherPartyInvolved", equals: "Yes" },
-      { key: "policeOnScene", equals: "Yes" },
+      { key: "policeOnScene", equals: "Yes, they are here" },
+      { key: "policeOnScene", equals: "Called, not here yet" },
     ],
     fields: [
       { key: "witness1", label: "Witness 1 — name and number", type: "text" },
@@ -311,6 +315,23 @@ export const SECTIONS = [
     types: ["other"],
     fields: [
       { key: "otherExplain", label: "Other (explain)", type: "textarea" },
+    ],
+  },
+  // Citation is asked at the END: a driver can't know at minute one whether he's
+  // getting a ticket, but by the last screen the officer has usually decided —
+  // so ask then, and he can photograph it. "Officer said one is coming" exists
+  // because the alternative is a driver honestly answering No and the DOT testing
+  // window (8h alcohol / 32h controlled substances) closing before anyone knows
+  // a citation was on its way.
+  {
+    id: "citationFinal",
+    title: "Before you send this",
+    subtitle: "By now the officer has usually decided.",
+    types: null,
+    fields: [
+      { key: "citationIssued", label: "Were you or anyone else issued a ticket?", type: "select", options: ["Yes", "Officer said one is coming", "No", "Unknown"], required: true },
+      { key: "photoTicket", label: "Picture of the ticket", type: "photo", requiredIf: { key: "citationIssued", equals: "Yes" } },
+      { key: "ticketWho", label: "Who received it?", type: "text", requiredIf: { key: "citationIssued", equals: "Yes" } },
     ],
   },
   {

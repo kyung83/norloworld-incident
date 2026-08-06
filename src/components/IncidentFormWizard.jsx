@@ -513,10 +513,30 @@ export default function IncidentFormWizard() {
       return actual === f.showIf.equals;
     };
 
+    // Push a gate and, when its answer calls for it, the "stop and call" step
+    // right behind it. It is a real step, so Next cannot skip past it — the
+    // driver either confirms he called or says why he could not. The trigger is
+    // not severity: it is whether there is still someone to talk to. Someone
+    // hurt, or the other party standing there while safety can still settle it
+    // directly, before police, a report, or a citation.
+    const hurt = values.anyoneInjured === "Yes" || values.otherPartiesInjured === "Yes";
+    const pushGate = (f) => {
+      out.push({ kind: "gate", field: f });
+      if (f.key === "anyoneInjured" && values.anyoneInjured === "Yes") {
+        out.push({ kind: "callNow", reason: "Someone is hurt." });
+      }
+      // Presence fires the call only when nobody is hurt — an injury already put
+      // the same screen in front of the driver earlier in the flow.
+      if (f.key === "otherPartyPresent" && !hurt &&
+          values.otherPartyPresent === "Yes, they are here") {
+        out.push({ kind: "callNow", reason: "The other driver or owner is still there with you." });
+      }
+    };
+
     // Leading gates, in order, before identity — each still gated by its showIf.
     LEADING_GATES.forEach((key) => {
       const f = gateFields.find((g) => g.key === key);
-      if (f && gateVisible(f)) out.push({ kind: "gate", field: f });
+      if (f && gateVisible(f)) pushGate(f);
     });
 
     if (identitySection) {
@@ -527,7 +547,7 @@ export default function IncidentFormWizard() {
     gateFields
       .filter((f) => !LEADING_GATES.includes(f.key))
       .filter(gateVisible)
-      .forEach((f) => out.push({ kind: "gate", field: f }));
+      .forEach((f) => pushGate(f));
 
     out.push({ kind: "types" });
 
@@ -707,7 +727,17 @@ export default function IncidentFormWizard() {
         {current?.kind === "types" && <TypesScreen types={types} setTypes={setTypes} />}
 
         {current?.kind === "group" && (
-          <GroupScreen title={current.title} subtitle={current.subtitle} fields={current.fields} values={values} set={set} />
+          <GroupScreen
+            title={current.title}
+            subtitle={current.subtitle}
+            fields={current.fields}
+            values={values}
+            set={set}
+            uploads={uploads}
+            onCapture={capturePhoto}
+            onRetry={retryPhoto}
+            onRemove={removePhoto}
+          />
         )}
 
         {current?.kind === "checklist" && (
@@ -722,6 +752,21 @@ export default function IncidentFormWizard() {
             onRetry={retryPhoto}
             onRemove={removePhoto}
             goToGate={goToGate}
+          />
+        )}
+
+        {current?.kind === "callNow" && (
+          <CallNowScreen
+            reason={current.reason}
+            onCalled={() => {
+              set("calledSafety", "Yes");
+              setStep((s) => s + 1);
+            }}
+            onCannot={(why) => {
+              set("calledSafety", "No");
+              set("couldNotCallReason", why);
+              setStep((s) => s + 1);
+            }}
           />
         )}
 
@@ -746,7 +791,9 @@ export default function IncidentFormWizard() {
             Back
           </button>
         )}
-        {current?.kind !== "review" ? (
+        {/* The call-now step advances only through its own buttons — no Next to
+            tap past it. Back stays, so a mis-tapped gate answer is recoverable. */}
+        {current?.kind === "callNow" ? null : current?.kind !== "review" ? (
           <button
             disabled={blocked}
             onClick={() => setStep((s) => s + 1)}
@@ -768,7 +815,9 @@ export default function IncidentFormWizard() {
       {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
       {savedAt && <p className="mt-3 text-xs text-gray-500">Saved — safe to close and come back</p>}
 
-      <CallBar />
+      {/* The call-now step already puts the number front and center; a second
+          call button below it would just be noise. */}
+      {current?.kind !== "callNow" && <CallBar />}
     </div>
   );
 }
@@ -784,9 +833,9 @@ function GateScreen({ field, value, onPick, banner }) {
       {banner && (
         <div className="mb-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
           <div>{banner}</div>
-          <a href="tel:+19898027135" className="mt-1 block font-semibold underline">
-            Driver Line: (989) 802-7135
-          </a>
+          <div className="mt-1 font-semibold">
+            Driver Line: (989) 802-7135 — press option 6
+          </div>
         </div>
       )}
       <h1 className="text-2xl font-medium leading-snug">{field.label}</h1>
@@ -832,7 +881,7 @@ function TypesScreen({ types, setTypes }) {
   );
 }
 
-function GroupScreen({ title, subtitle, fields, values, set }) {
+function GroupScreen({ title, subtitle, fields, values, set, uploads, onCapture, onRetry, onRemove }) {
   return (
     <div>
       <h1 className="text-xl font-medium">{title}</h1>
@@ -840,9 +889,23 @@ function GroupScreen({ title, subtitle, fields, values, set }) {
         <p className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">{subtitle}</p>
       )}
       <div className="mt-5 flex flex-col gap-5">
-        {fields.map((f) => (
-          <Field key={f.key} field={f} values={values} set={set} />
-        ))}
+        {fields.map((f) =>
+          // Photo fields can now live on a plain section (the ticket photo moved
+          // out of the checklist into citationFinal), so render them the same way
+          // the checklist does rather than as a text input.
+          f.type === "photo" ? (
+            <PhotoField
+              key={f.key}
+              field={f}
+              list={(uploads && uploads[f.key]) || []}
+              onCapture={onCapture}
+              onRetry={onRetry}
+              onRemove={onRemove}
+            />
+          ) : (
+            <Field key={f.key} field={f} values={values} set={set} />
+          )
+        )}
       </div>
     </div>
   );
@@ -1229,41 +1292,116 @@ function formatValue(key, value) {
 }
 
 function CallBar() {
-  // TEMPORARY: test number (Brandon's cell). Replace with the real safety
-  // line(s) before drivers use this.
-  const [confirming, setConfirming] = useState(false);
+  // No dialing: the driver reads the number off the tablet and calls it from the
+  // phone already in their hand. The number is shown as text on purpose.
+  const [expanded, setExpanded] = useState(false);
 
-  if (!confirming) {
+  if (!expanded) {
     return (
       <button
-        onClick={() => setConfirming(true)}
+        onClick={() => setExpanded(true)}
         className="mt-4 block w-full rounded border border-red-300 bg-red-50 py-3 text-center text-sm font-medium text-red-800"
       >
-        Call safety
+        Call driver line
       </button>
     );
   }
 
   return (
-    <div className="mt-4 rounded border border-red-300 bg-red-50 p-4">
-      <p className="text-sm font-medium text-red-800">Call safety?</p>
-      <p className="mt-1 text-xs text-red-700">
-        Your report is saved. You can come back and finish it after the call.
+    <div className="mt-4 rounded border border-red-300 bg-red-50 p-4 text-center">
+      <p className="text-xs uppercase tracking-wide text-red-700">Driver Line</p>
+      {/* Large enough to read at arm's length off a tablet while holding a phone. */}
+      <p className="mt-1 text-4xl font-bold tracking-wide text-red-900">(989) 802-7135</p>
+      <p className="mt-3 text-base font-medium text-red-800">Press option 6 when it answers.</p>
+      <p className="mt-2 text-sm text-red-700">
+        Your report is saved. Come back and finish it after the call.
       </p>
-      <div className="mt-3 flex gap-2">
-        <a
-          href="tel:+19894297145"
-          className="flex-1 rounded bg-red-600 py-3 text-center text-sm font-medium text-white"
-        >
-          Yes, call now
-        </a>
-        <button
-          onClick={() => setConfirming(false)}
-          className="flex-1 rounded border border-red-300 py-3 text-center text-sm text-red-800"
-        >
-          Go back
-        </button>
-      </div>
+      <button
+        onClick={() => setExpanded(false)}
+        className="mt-4 w-full rounded border border-red-300 py-3 text-center text-sm text-red-800"
+      >
+        Go back
+      </button>
+    </div>
+  );
+}
+
+// The "stop and call" interrupt — its own wizard step, not a banner. It appears
+// the moment the answers make it apply, and the form will not advance until the
+// driver either confirms he called or says why he could not. Same no-dial
+// treatment as CallBar: the number is text, read off the tablet and dialed from
+// the phone in the driver's other hand.
+function CallNowScreen({ reason, onCalled, onCannot }) {
+  const [cannot, setCannot] = useState(false);
+  const [why, setWhy] = useState("");
+  const [armed, setArmed] = useState(false);
+
+  // The continue button appears after a short delay — not to obstruct, but to
+  // stop a driver tapping through on muscle memory before he has read a screen
+  // that only ever appears when it matters.
+  useEffect(() => {
+    const t = setTimeout(() => setArmed(true), 3000);
+    return () => clearTimeout(t);
+  }, []);
+
+  return (
+    <div className="rounded border-2 border-red-500 bg-red-950 p-5">
+      <h1 className="text-2xl font-bold text-red-100">Stop — call the driver line</h1>
+
+      <p className="mt-3 text-base text-red-100">{reason}</p>
+
+      <p className="mt-3 text-sm text-red-200">
+        Safety may be able to settle this directly with the other party before
+        police get involved. That is much better for you and for us — but only
+        while they are still there.
+      </p>
+
+      <p className="mt-5 text-center text-xs uppercase tracking-wide text-red-300">Driver Line</p>
+      {/* Large enough to read at arm's length off a tablet. */}
+      <p className="mt-1 text-center text-4xl font-bold tracking-wide text-white">(989) 802-7135</p>
+      <p className="mt-2 text-center text-base font-medium text-red-100">Press option 6 when it answers.</p>
+
+      {!cannot ? (
+        <>
+          <button
+            disabled={!armed}
+            onClick={onCalled}
+            className="mt-6 w-full rounded border border-red-400 py-4 text-base font-medium text-red-100 disabled:opacity-40"
+          >
+            {armed ? "I called — continue the report" : "…"}
+          </button>
+
+          <button
+            onClick={() => setCannot(true)}
+            className="mt-2 w-full py-2 text-sm text-red-300 underline"
+          >
+            I can't call right now
+          </button>
+        </>
+      ) : (
+        // Never trap him. A driver with no signal, a dying phone, or an officer
+        // talking to him needs a way forward — and a driver stuck on a screen he
+        // cannot pass abandons the form, and then safety gets nothing at all.
+        <div className="mt-5">
+          <label className="block text-sm font-medium text-red-100">
+            Why not? Safety will see this.
+          </label>
+          <textarea
+            rows={3}
+            value={why}
+            onChange={(e) => setWhy(e.target.value)}
+            placeholder="No signal, phone almost dead, officer is talking to me…"
+            className="mt-2 w-full rounded border border-red-400 bg-red-900 p-3 text-sm text-red-50 placeholder-red-300"
+          />
+          <button
+            disabled={why.trim().length < 10}
+            onClick={() => onCannot(why.trim())}
+            className="mt-3 w-full rounded bg-red-600 py-4 text-base font-medium text-white disabled:bg-red-900 disabled:text-red-400"
+          >
+            Continue the report
+          </button>
+        </div>
+      )}
     </div>
   );
 }
