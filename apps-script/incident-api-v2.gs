@@ -45,6 +45,7 @@ var INC = {
   ERROR_LOG_ID:    '10amkhYmOGsrUL2PAl7XqId2i-G63gXdBNirWnR66tGc',
 
   DATA_TAB:       'IncidentsData',
+  ROSTER_ROLE_TAB: 'Recruiting',      // driver roster — Division and ROLE columns
   CATEGORIES_TAB: 'Incident Categories',   // same shape as 'Breakdowns Categories'
   ROSTER_TAB:     'Roster',
 
@@ -530,6 +531,9 @@ function createIncident(p) {
     }
     var sev   = computeSeverity_(p);
     var sheet = tab_(INC.SHEET_ID, INC.DATA_TAB);
+    // Resolved outside the lock — it reads a different spreadsheet and there is
+    // no reason to hold up another driver's submission for it.
+    var driverRole = lookupDriverRole_(p);
     var id    = 'INC-' + Utilities.formatDate(new Date(), INC.TIMEZONE, 'yyyyMMdd-HHmmss');
 
     // Case number + append run under a lock so two submissions at the same
@@ -555,7 +559,7 @@ function createIncident(p) {
     // front (A–T), photos + plumbing at the back. Photo URLs are written inline
     // here because the wizard uploads them during the checklist and sends the
     // URLs in this payload (there is no separate savePhotoUrls step).
-    sheet.appendRow([
+    sheet.appendRow(rowSafe_([
       caseNumber,                                         // A  Case Number
       new Date(),                                         // B  Timestamp
       driverFullName_(p),                                 // C  Driver
@@ -584,7 +588,7 @@ function createIncident(p) {
       pick_(p, 'breakdownId'),                            // Z  Breakdown ID
       id,                                                 // AA Incident ID
       JSON.stringify(p)                                   // AB Payload (hidden)
-    ]);
+    ]));
     rowNum = sheet.getLastRow();
     }
     // Force the case number to stay text. Sheets otherwise reads 08042601 as a
@@ -592,6 +596,11 @@ function createIncident(p) {
     // counts AND changes the number Riley quotes to an insurer.
     if (!duplicate) {
       sheet.getRange(rowNum, 1).setNumberFormat('@').setValue(caseNumber);
+      // Written by header so they land wherever the columns sit. Add
+      // "Home Terminal" and "Driver Role" to IncidentsData; without them this
+      // logs once and carries on.
+      setByHeader_(sheet, rowNum, 'Home Terminal', pick_(p, 'homeTerminal'));
+      setByHeader_(sheet, rowNum, 'Driver Role',   driverRole);
     }
     } finally {
       lock.releaseLock();
@@ -629,6 +638,8 @@ function createIncident(p) {
       tier: sev.tier,
       reasons: sev.reasons,
       lane: sev.lane,
+      driverRole: driverRole,
+      flatbed: isFlatbed_(driverRole),
       notify: notify,
       breakdownSpawned: spawned
     };
@@ -817,6 +828,81 @@ function pick_(obj) {
     if (v !== undefined && v !== null && String(v).trim() !== '') return v;
   }
   return '';
+}
+
+/**
+ * The driver's role, from the roster, falling back to what he told us.
+ *
+ * The roster is the source of truth for whether someone is a flatbed driver —
+ * which decides whether Matt picks the incident up. But it is a recruiting
+ * sheet: anyone hired before it existed is not in it, and the values are typed
+ * by hand, so "DV - OTR", "DV- OTR" and "DV-OTR" all occur.
+ *
+ * So: normalise hard, match on the prefix, and if the driver is not found use
+ * the answer he gave. A blank role would silently route a flatbed incident to
+ * the wrong person, which is worse than trusting the driver.
+ */
+function lookupDriverRole_(p) {
+  var told = String(p.driverRole || '').trim();
+  try {
+    var sheet = tab_(INC.MASTER_SHEET_ID, INC.ROSTER_ROLE_TAB);
+    var last  = sheet.getLastRow();
+    if (last < 2) return told;
+
+    var data  = sheet.getRange(1, 1, last, sheet.getLastColumn()).getValues();
+    var head  = data[0].map(function (h) { return String(h).trim().toLowerCase(); });
+    var iF = head.indexOf('first name');
+    var iL = head.indexOf('last name');
+    var iR = head.indexOf('role');
+    if (iF < 0 || iL < 0 || iR < 0) return told;
+
+    var wantF = String(p.driverFirstName || '').trim().toLowerCase();
+    var wantL = String(p.driverLastName  || '').trim().toLowerCase();
+    if (!wantF || !wantL) return told;
+
+    for (var r = 1; r < data.length; r++) {
+      if (String(data[r][iF]).trim().toLowerCase() !== wantF) continue;
+      if (String(data[r][iL]).trim().toLowerCase() !== wantL) continue;
+      var found = String(data[r][iR] || '').trim();
+      if (found) return found;
+    }
+  } catch (err) {
+    logError_('lookupDriverRole_', err);
+  }
+  return told;
+}
+
+/**
+ * Flatbed or not — the one distinction that changes who handles the incident.
+ *
+ * Tolerates every spelling in the roster: "FLAT - OTR", "FLAT- OTR",
+ * "Flatbed — Local". Anything whose collapsed form starts with FLAT counts.
+ */
+function isFlatbed_(role) {
+  var r = String(role || '').toUpperCase().replace(/[^A-Z]/g, '');
+  return r.indexOf('FLAT') === 0;
+}
+
+/**
+ * Make a row safe to write.
+ *
+ * appendRow with an array inside it writes the Java array's identity —
+ * "[Ljava.lang.Object;@10bc812f" — into the cell, silently, and the real
+ * values are gone from that column. It happened once when the form started
+ * sending several photos before the backend knew how to join them.
+ *
+ * Rather than trusting every future field to be a string, flatten anything
+ * array-shaped on the way out. One line, and that whole class of bug stops
+ * being possible.
+ */
+function rowSafe_(row) {
+  return row.map(function (v) {
+    if (Array.isArray(v)) {
+      return v.filter(function (x) { return x !== null && x !== undefined && String(x).trim(); })
+              .join('\n');
+    }
+    return v;
+  });
 }
 
 /**
@@ -1038,6 +1124,61 @@ function isIncidentAppEnabled_() {
   if (!INC.RESPECT_KILL_SWITCH) return true;
   var val = PropertiesService.getScriptProperties().getProperty('INCIDENT_APP_ENABLED');
   return val === null || val === undefined || val === '' || val === 'true';
+}
+
+
+// =============================================================================
+// SECTION 8b — ONE-OFF REPAIR
+// =============================================================================
+
+/**
+ * Repairs photo cells that were written before the multi-photo fix deployed.
+ *
+ * A row submitted in that window has "[Ljava.lang.Object;@…" in a photo column
+ * instead of the URLs. Nothing was lost — the Payload column holds every answer
+ * including the photo arrays — so this reads them back out and rewrites the
+ * cells properly.
+ *
+ * Run once from the editor, then never again. Logs what it changed and touches
+ * nothing else.
+ */
+function repairPhotoCells() {
+  var sheet = tab_(INC.SHEET_ID, INC.DATA_TAB);
+  var last  = sheet.getLastRow();
+  if (last < 2) { Logger.log('No rows.'); return; }
+
+  var map = {
+    'Photo — Scene':     'photoScene',
+    'Photo — Our Truck': 'photoOurEquipment',
+    'Photo — Other':     'photoOtherProperty'
+  };
+
+  var payCol = colFor_(sheet, 'Payload');
+  if (payCol < 0) { Logger.log('No Payload column.'); return; }
+
+  var fixed = 0;
+  for (var r = 2; r <= last; r++) {
+    var raw = sheet.getRange(r, payCol).getValue();
+    if (!raw) continue;
+    var p;
+    try { p = JSON.parse(raw); } catch (e) { continue; }
+
+    for (var header in map) {
+      var col = colFor_(sheet, header);
+      if (col < 0) continue;
+      var cell = String(sheet.getRange(r, col).getValue() || '');
+
+      // Only touch cells that are actually broken.
+      if (cell.indexOf('[L') !== 0 && cell.indexOf('java.lang') < 0) continue;
+
+      var good = photoCell_(p[map[header]]);
+      sheet.getRange(r, col).setValue(good);
+      Logger.log('Row %s  %s  ->  %s', r, header,
+                 good ? good.split('\n').length + ' photo(s)' : 'empty');
+      fixed++;
+    }
+  }
+  Logger.log(fixed ? fixed + ' cell(s) repaired.' : 'Nothing needed repair.');
 }
 
 
