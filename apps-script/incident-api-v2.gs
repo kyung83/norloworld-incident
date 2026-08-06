@@ -7,7 +7,6 @@
  * already in use at Norlo:
  *   - doGet / doPost switch on a ?route= parameter
  *   - convert2DArrayToObjects() for sheet reads
- *   - category/subcategory dropdowns driven from a sheet tab, not from code
  *   - errors appended to the shared error-log spreadsheet
  *   - notification handled by norlo-twilio-sms.gs in CLAIM mode
  *
@@ -45,7 +44,7 @@ var INC = {
   ERROR_LOG_ID:    '10amkhYmOGsrUL2PAl7XqId2i-G63gXdBNirWnR66tGc',
 
   DATA_TAB:       'IncidentsData',
-  CATEGORIES_TAB: 'Incident Categories',   // same shape as 'Breakdowns Categories'
+  ROSTER_ROLE_TAB: 'Recruiting',      // driver roster — Division and ROLE columns
   ROSTER_TAB:     'Roster',
 
   // Drive folder (created in the deploying account's My Drive) holding incident
@@ -91,9 +90,8 @@ function doGet(e) {
     // Everything the driver-facing form needs to render.
     case 'getIncidentForm':
       return json_({
-        categories: getIncidentCategories(),
-        drivers:    getDrivers(),
-        states:     getStates()
+        drivers: getDrivers(),
+        states:  getStates()
       });
 
     // Office-side queue for the dashboard.
@@ -410,33 +408,27 @@ function computeSeverity_(p) {
   if (yes_(p.fatality))              reasons.push('Fatality');
   if (yes_(p.anyoneInjured))         reasons.push('Injury reported');
   if (yes_(p.medicalAwayFromScene))  reasons.push('Medical treatment away from scene');
+  if (otherPartyPresent_(p)) {
+    reasons.push('Other party still on scene — settle it before police are involved');
+  }
   if (yes_(p.pedestrianInvolved))    reasons.push('Pedestrian or cyclist involved');
   if (yes_(p.rollover))              reasons.push('Rollover or jackknife');
   if (yes_(p.hazmatOrFuelSpill))     reasons.push('Fuel, oil, or hazmat spill');
   if (yes_(p.driverRequestsContact)) reasons.push('Driver asked to be contacted now');
 
-  // Another party STILL THERE is the Tier 1 trigger, not another party as such.
-  // The value of the call is the window to settle it directly — admit fault,
-  // send us the invoice — before police, a report, or a citation. Once they have
-  // driven off that window is shut and the damage keeps until morning.
-  var present = String(p.otherPartyPresent || '').toLowerCase().indexOf('yes') === 0;
-  if (present) {
-    reasons.push('Other party still on scene — settle it before police are involved');
-  }
-
   // Police attending a parking-lot scrape is not by itself a wakeup. Police
   // attending something with another party in it is.
-  if (yes_(p.policeOnScene) && yes_(p.otherPartyInvolved)) {
-    reasons.push('Police on scene with another party involved');
-  }
+  // Police alone was never the trigger, and with presence now carrying that
+  // weight it is not one at all. An officer taking a deer report is paperwork.
+
 
   // 49 CFR 382.303. A citation on its own is a morning problem. A citation
   // combined with a tow-away or an injury starts a testing clock: alcohol is
   // abandoned at 8 hours, controlled substances at 32. This cannot wait for
   // the morning queue, which is exactly why it is checked as a COMBINATION
   // and not as a property of the citation field alone.
-  if (yes_(p.citationIssued) && (yes_(p.towRequired) || yes_(p.medicalAwayFromScene))) {
-    reasons.push('Citation with tow or injury — DOT post-accident testing clock started');
+  if (citationLikely_(p) && (yes_(p.towRequired) || yes_(p.medicalAwayFromScene))) {
+    reasons.push('Citation or expected citation with tow or injury — DOT post-accident testing clock started');
   }
 
   if (reasons.length) {
@@ -449,17 +441,16 @@ function computeSeverity_(p) {
 
   var gates = [
     'anyoneInjured', 'medicalAwayFromScene', 'pedestrianInvolved',
-    'otherVehicleInvolved', 'otherPartyInvolved', 'policeOnScene',
-    'citationIssued', 'rollover', 'hazmatOrFuelSpill',
+    'otherVehicleInvolved', 'otherPartyInvolved',
+    'rollover', 'hazmatOrFuelSpill',
     'truckDrivable', 'towRequired', 'vehicleStuck'
   ];
-  // otherPartyPresent is only asked — and only required — when there is another
-  // party: another vehicle, or property of theirs we hit. It mirrors the form's
-  // showIf. Adding it unconditionally would escalate every single-vehicle
-  // incident on a blank the driver was never shown.
-  if (yes_(p.otherVehicleInvolved) || yes_(p.otherPartyInvolved)) {
-    gates.push('otherPartyPresent');
-  }
+  // policeOnScene and citationIssued are deliberately NOT in that list. Both
+  // now have an "Unknown" option that is a legitimate answer rather than a
+  // skipped question, and citationIssued is asked at the END of the form — a
+  // driver who abandons before reaching it would otherwise escalate every time.
+  // otherPartyPresent is only asked when another party is involved, so it is
+  // checked separately below rather than as a blanket gate.
   var missing = [];
   for (var i = 0; i < gates.length; i++) {
     var v = p[gates[i]];
@@ -468,6 +459,14 @@ function computeSeverity_(p) {
       missing.push(gates[i]);
     }
   }
+  // Asked only when another party is involved — but when it was asked and not
+  // answered, we cannot tell whether anyone is standing there, and that is the
+  // difference between a call and a morning text.
+  if (yes_(p.otherPartyInvolved)) {
+    var pres = String(p.otherPartyPresent || '').trim().toLowerCase();
+    if (!pres || pres === 'unknown') missing.push('otherPartyPresent');
+  }
+
   if (missing.length) {
     return {
       tier: 1,
@@ -479,12 +478,14 @@ function computeSeverity_(p) {
   // ---- TIER 2 ---------------------------------------------------------------
   // Real, but it keeps until someone is awake and looking.
 
-  // Another vehicle, but the other party has already left — nothing for safety
-  // to negotiate tonight, so it drops to the morning queue rather than a page.
-  if (yes_(p.otherVehicleInvolved) && !present) {
-    reasons.push('Another vehicle involved, other party has left');
+  if (citationLikely_(p))          reasons.push('Citation issued, no tow or injury');
+  // Someone else's vehicle or property, and nobody there to talk to. Mark's
+  // case: the driver documents it, safety picks it up in the morning, and the
+  // damaged fence is exactly as damaged then as it is now. Real, not urgent —
+  // which is Tier 2, not a silent Tier 3 log nobody is asked to acknowledge.
+  if (yes_(p.otherPartyInvolved) && !otherPartyPresent_(p)) {
+    reasons.push('Someone else\'s property or vehicle, other party not present');
   }
-  if (yes_(p.citationIssued))      reasons.push('Citation issued, no tow or injury');
   if (yes_(p.freightDamaged))      reasons.push('Freight damaged');
   if (no_(p.truckDrivable))        reasons.push('Truck not drivable');
   if (yes_(p.towRequired))         reasons.push('Tow required');
@@ -550,6 +551,9 @@ function createIncident(p) {
     }
     var sev   = computeSeverity_(p);
     var sheet = tab_(INC.SHEET_ID, INC.DATA_TAB);
+    // Resolved outside the lock — it reads a different spreadsheet and there is
+    // no reason to hold up another driver's submission for it.
+    var driverRole = lookupDriverRole_(p);
     var id    = 'INC-' + Utilities.formatDate(new Date(), INC.TIMEZONE, 'yyyyMMdd-HHmmss');
 
     // Case number + append run under a lock so two submissions at the same
@@ -575,7 +579,7 @@ function createIncident(p) {
     // front (A–T), photos + plumbing at the back. Photo URLs are written inline
     // here because the wizard uploads them during the checklist and sends the
     // URLs in this payload (there is no separate savePhotoUrls step).
-    sheet.appendRow([
+    sheet.appendRow(rowSafe_([
       caseNumber,                                         // A  Case Number
       new Date(),                                         // B  Timestamp
       driverFullName_(p),                                 // C  Driver
@@ -583,28 +587,27 @@ function createIncident(p) {
       pick_(p, 'truck', 'truckNumber'),                   // E  Truck
       pick_(p, 'trailer', 'trailerNumber'),               // F  Trailer
       typeList_(p),                                       // G  Type
-      pick_(p, 'subCategory', 'subcategory'),             // H  Subcategory
-      pick_(p, 'locationName', 'siteName', 'location', 'streetAddress'), // I  Location
-      pick_(p, 'city'),                                   // J  City
-      pick_(p, 'state'),                                  // K  State
-      pick_(p, 'description', 'otherExplain', 'notes'),   // L  Description
-      sev.tier,                                           // M  Tier
-      sev.reasons.join(' | '),                            // N  Tier Reasons
-      sev.lane,                                           // O  Lane
-      'New',                                              // P  Status
-      '',                                                 // Q  Claimed By
-      '',                                                 // R  Claimed At
-      pick_(p, 'notApplicable'),                          // S  Not applicable
-      pick_(p, 'answeredNo'),                             // T  Answered no
-      photoCell_(p.photoScene),                           // U  Photo — Scene
-      photoCell_(p.photoOurEquipment),                    // V  Photo — Our Truck
-      photoCell_(p.photoOtherProperty),                   // W  Photo — Other
-      photoFolderUrl,                                     // X  Photos — Folder
-      '',                                                 // Y  Office Notes
-      pick_(p, 'breakdownId'),                            // Z  Breakdown ID
-      id,                                                 // AA Incident ID
-      JSON.stringify(p)                                   // AB Payload (hidden)
-    ]);
+      pick_(p, 'locationName', 'siteName', 'location', 'streetAddress'), // H  Location
+      pick_(p, 'city'),                                   // I  City
+      pick_(p, 'state'),                                  // J  State
+      pick_(p, 'description', 'otherExplain', 'notes'),   // K  Description
+      sev.tier,                                           // L  Tier
+      sev.reasons.join(' | '),                            // M  Tier Reasons
+      sev.lane,                                           // N  Lane
+      'New',                                              // O  Status
+      '',                                                 // P  Claimed By
+      '',                                                 // Q  Claimed At
+      pick_(p, 'notApplicable'),                          // R  Not applicable
+      pick_(p, 'answeredNo'),                             // S  Answered no
+      photoCell_(p.photoScene),                           // T  Photo — Scene
+      photoCell_(p.photoOurEquipment),                    // U  Photo — Our Truck
+      photoCell_(p.photoOtherProperty),                   // V  Photo — Other
+      photoFolderUrl,                                     // W  Photos — Folder
+      '',                                                 // X  Office Notes
+      pick_(p, 'breakdownId'),                            // Y  Breakdown ID
+      id,                                                 // Z  Incident ID
+      JSON.stringify(p)                                   // AA Payload (hidden)
+    ]));
     rowNum = sheet.getLastRow();
     }
     // Force the case number to stay text. Sheets otherwise reads 08042601 as a
@@ -612,6 +615,11 @@ function createIncident(p) {
     // counts AND changes the number Riley quotes to an insurer.
     if (!duplicate) {
       sheet.getRange(rowNum, 1).setNumberFormat('@').setValue(caseNumber);
+      // Written by header so they land wherever the columns sit. Add
+      // "Home Terminal" and "Driver Role" to IncidentsData; without them this
+      // logs once and carries on.
+      setByHeader_(sheet, rowNum, 'Home Terminal', pick_(p, 'homeTerminal'));
+      setByHeader_(sheet, rowNum, 'Driver Role',   driverRole);
     }
     } finally {
       lock.releaseLock();
@@ -649,6 +657,8 @@ function createIncident(p) {
       tier: sev.tier,
       reasons: sev.reasons,
       lane: sev.lane,
+      driverRole: driverRole,
+      flatbed: isFlatbed_(driverRole),
       notify: notify,
       breakdownSpawned: spawned
     };
@@ -785,41 +795,6 @@ function getIncidentsOpen() {
 
 
 // =============================================================================
-// SECTION 6 — CATEGORIES
-// =============================================================================
-
-/**
- * Identical in shape to getAllCategoriesAndSubCategories() on the breakdown
- * side: row 1 holds the incident types, each column below holds that type's
- * sub-questions. Riley and Mark reword dropdowns by editing the sheet — no
- * deploy, no ticket to IT.
- */
-function getIncidentCategories(sheetName) {
-  sheetName = sheetName || INC.CATEGORIES_TAB;
-  var sheet = tab_(INC.MASTER_SHEET_ID, sheetName);
-
-  var lastColumn = sheet.getLastColumn();
-  var lastRow    = sheet.getLastRow();
-  if (lastRow < 2 || lastColumn < 2) return {};
-
-  var categoryRow     = sheet.getRange(1, 2, 1, lastColumn - 1).getValues()[0];
-  var subCategoryRows = sheet.getRange(2, 2, lastRow - 1, lastColumn - 1).getValues();
-
-  var categoryData = {};
-  categoryRow.forEach(function (category, columnIndex) {
-    if (category !== '') {
-      categoryData[category] = [];
-      subCategoryRows.forEach(function (row) {
-        if (row[columnIndex] !== '') categoryData[category].push(row[columnIndex]);
-      });
-    }
-  });
-
-  return categoryData;
-}
-
-
-// =============================================================================
 // SECTION 7 — HELPERS
 // =============================================================================
 
@@ -837,6 +812,81 @@ function pick_(obj) {
     if (v !== undefined && v !== null && String(v).trim() !== '') return v;
   }
   return '';
+}
+
+/**
+ * The driver's role, from the roster, falling back to what he told us.
+ *
+ * The roster is the source of truth for whether someone is a flatbed driver —
+ * which decides whether Matt picks the incident up. But it is a recruiting
+ * sheet: anyone hired before it existed is not in it, and the values are typed
+ * by hand, so "DV - OTR", "DV- OTR" and "DV-OTR" all occur.
+ *
+ * So: normalise hard, match on the prefix, and if the driver is not found use
+ * the answer he gave. A blank role would silently route a flatbed incident to
+ * the wrong person, which is worse than trusting the driver.
+ */
+function lookupDriverRole_(p) {
+  var told = String(p.driverRole || '').trim();
+  try {
+    var sheet = tab_(INC.MASTER_SHEET_ID, INC.ROSTER_ROLE_TAB);
+    var last  = sheet.getLastRow();
+    if (last < 2) return told;
+
+    var data  = sheet.getRange(1, 1, last, sheet.getLastColumn()).getValues();
+    var head  = data[0].map(function (h) { return String(h).trim().toLowerCase(); });
+    var iF = head.indexOf('first name');
+    var iL = head.indexOf('last name');
+    var iR = head.indexOf('role');
+    if (iF < 0 || iL < 0 || iR < 0) return told;
+
+    var wantF = String(p.driverFirstName || '').trim().toLowerCase();
+    var wantL = String(p.driverLastName  || '').trim().toLowerCase();
+    if (!wantF || !wantL) return told;
+
+    for (var r = 1; r < data.length; r++) {
+      if (String(data[r][iF]).trim().toLowerCase() !== wantF) continue;
+      if (String(data[r][iL]).trim().toLowerCase() !== wantL) continue;
+      var found = String(data[r][iR] || '').trim();
+      if (found) return found;
+    }
+  } catch (err) {
+    logError_('lookupDriverRole_', err);
+  }
+  return told;
+}
+
+/**
+ * Flatbed or not — the one distinction that changes who handles the incident.
+ *
+ * Tolerates every spelling in the roster: "FLAT - OTR", "FLAT- OTR",
+ * "Flatbed — Local". Anything whose collapsed form starts with FLAT counts.
+ */
+function isFlatbed_(role) {
+  var r = String(role || '').toUpperCase().replace(/[^A-Z]/g, '');
+  return r.indexOf('FLAT') === 0;
+}
+
+/**
+ * Make a row safe to write.
+ *
+ * appendRow with an array inside it writes the Java array's identity —
+ * "[Ljava.lang.Object;@10bc812f" — into the cell, silently, and the real
+ * values are gone from that column. It happened once when the form started
+ * sending several photos before the backend knew how to join them.
+ *
+ * Rather than trusting every future field to be a string, flatten anything
+ * array-shaped on the way out. One line, and that whole class of bug stops
+ * being possible.
+ */
+function rowSafe_(row) {
+  return row.map(function (v) {
+    if (Array.isArray(v)) {
+      return v.filter(function (x) { return x !== null && x !== undefined && String(x).trim(); })
+              .join('\n');
+    }
+    return v;
+  });
 }
 
 /**
@@ -928,6 +978,35 @@ function typeList_(p) {
   var t = p.incidentTypes || p.incidentType || p.types;
   if (Array.isArray(t)) return t.join(', ');
   return t ? String(t) : '';
+}
+
+/**
+ * The other party still standing there — the Tier 1 trigger.
+ *
+ * Not "another vehicle involved". Mark's rule: a call is worth making when
+ * safety can still change the outcome, and that only holds while there is
+ * someone to talk to. Once they have driven off the damage keeps until morning.
+ */
+function otherPartyPresent_(p) {
+  return String(p.otherPartyPresent || '').toLowerCase().indexOf('yes') === 0;
+}
+
+/**
+ * A citation, issued or promised.
+ *
+ * "Officer said one is coming" counts. The alternative is a driver honestly
+ * answering No and the DOT testing window closing — alcohol at 8 hours,
+ * controlled substances at 32 — before anyone knows a citation was on its way.
+ */
+function citationLikely_(p) {
+  var c = String(p.citationIssued || '').toLowerCase();
+  return c.indexOf('yes') === 0 || c.indexOf('coming') > -1;
+}
+
+/** Police here, or on their way. Both mean a report is likely. */
+function policeInvolved_(p) {
+  var v = String(p.policeOnScene || '').toLowerCase();
+  return v.indexOf('yes') === 0 || v.indexOf('not here yet') > -1;
 }
 
 function yes_(v) {
@@ -1062,6 +1141,61 @@ function isIncidentAppEnabled_() {
 
 
 // =============================================================================
+// SECTION 8b — ONE-OFF REPAIR
+// =============================================================================
+
+/**
+ * Repairs photo cells that were written before the multi-photo fix deployed.
+ *
+ * A row submitted in that window has "[Ljava.lang.Object;@…" in a photo column
+ * instead of the URLs. Nothing was lost — the Payload column holds every answer
+ * including the photo arrays — so this reads them back out and rewrites the
+ * cells properly.
+ *
+ * Run once from the editor, then never again. Logs what it changed and touches
+ * nothing else.
+ */
+function repairPhotoCells() {
+  var sheet = tab_(INC.SHEET_ID, INC.DATA_TAB);
+  var last  = sheet.getLastRow();
+  if (last < 2) { Logger.log('No rows.'); return; }
+
+  var map = {
+    'Photo — Scene':     'photoScene',
+    'Photo — Our Truck': 'photoOurEquipment',
+    'Photo — Other':     'photoOtherProperty'
+  };
+
+  var payCol = colFor_(sheet, 'Payload');
+  if (payCol < 0) { Logger.log('No Payload column.'); return; }
+
+  var fixed = 0;
+  for (var r = 2; r <= last; r++) {
+    var raw = sheet.getRange(r, payCol).getValue();
+    if (!raw) continue;
+    var p;
+    try { p = JSON.parse(raw); } catch (e) { continue; }
+
+    for (var header in map) {
+      var col = colFor_(sheet, header);
+      if (col < 0) continue;
+      var cell = String(sheet.getRange(r, col).getValue() || '');
+
+      // Only touch cells that are actually broken.
+      if (cell.indexOf('[L') !== 0 && cell.indexOf('java.lang') < 0) continue;
+
+      var good = photoCell_(p[map[header]]);
+      sheet.getRange(r, col).setValue(good);
+      Logger.log('Row %s  %s  ->  %s', r, header,
+                 good ? good.split('\n').length + ' photo(s)' : 'empty');
+      fixed++;
+    }
+  }
+  Logger.log(fixed ? fixed + ' cell(s) repaired.' : 'Nothing needed repair.');
+}
+
+
+// =============================================================================
 // SECTION 9 — SELF TEST
 // =============================================================================
 
@@ -1131,18 +1265,23 @@ function runSelfTest() {
   t = baseline(); t.citationIssued = 'Yes'; t.towRequired = 'Yes';
   check('Citation WITH tow (DOT testing clock)', computeSeverity_(t).tier, 1);
 
-  // Another vehicle is no longer Tier 1 on its own — only if the other party is
-  // still there. Gone, and it drops to the morning queue.
-  t = baseline(); t.otherVehicleInvolved = 'Yes'; t.otherPartyPresent = 'No, they already left';
-  check('Another vehicle, other party has left', computeSeverity_(t).tier, 2);
+  t = baseline(); t.citationIssued = 'Officer said one is coming'; t.towRequired = 'Yes';
+  check('Expected citation WITH tow (DOT clock)', computeSeverity_(t).tier, 1);
 
-  t = baseline(); t.otherVehicleInvolved = 'Yes'; t.otherPartyPresent = 'Yes, they are here';
-  check('Another vehicle, other party still present', computeSeverity_(t).tier, 1);
+  t = baseline(); t.policeOnScene = 'Yes, they are here';
+  check('Police taking a deer report, no party', computeSeverity_(t).tier, 3);
 
-  // Present-gate is shown once another vehicle is involved; left blank, we don't
-  // know if they're still there, so fail upward rather than assume they left.
-  t = baseline(); t.otherVehicleInvolved = 'Yes';
-  check('Another vehicle, present unanswered (fail upward)', computeSeverity_(t).tier, 1);
+  t = baseline(); t.otherPartyInvolved = 'Yes';
+  t.otherVehicleInvolved = 'Yes'; t.otherPartyPresent = 'Yes, they are here';
+  check('Other party STILL ON SCENE', computeSeverity_(t).tier, 1);
+
+  t = baseline(); t.otherPartyInvolved = 'Yes';
+  t.otherVehicleInvolved = 'Yes'; t.otherPartyPresent = 'No, they already left';
+  check('Other party GONE — morning, not a call', computeSeverity_(t).tier, 2);
+
+  t = baseline(); t.otherPartyInvolved = 'Yes';
+  t.otherPartyPresent = 'Nobody was ever there';
+  check('Property damage, nobody there', computeSeverity_(t).tier, 2);
 
   t = baseline(); t.anyoneInjured = 'Yes';
   check('Someone hurt', computeSeverity_(t).tier, 1);
@@ -1150,8 +1289,11 @@ function runSelfTest() {
   t = baseline(); delete t.truckDrivable;
   check('Gate left blank (fail upward)', computeSeverity_(t).tier, 1);
 
-  t = baseline(); t.citationIssued = 'Unknown';
+  t = baseline(); t.truckDrivable = 'Unknown';
   check('Gate answered Unknown (fail upward)', computeSeverity_(t).tier, 1);
+
+  t = baseline(); t.otherPartyInvolved = 'Yes';   // presence never answered
+  check('Other party involved, presence blank', computeSeverity_(t).tier, 1);
 
   t = baseline(); t.driverRequestsContact = 'Yes';
   check('Driver asks to be called', computeSeverity_(t).tier, 1);

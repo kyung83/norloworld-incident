@@ -506,16 +506,11 @@ export default function IncidentFormWizard() {
     const gateFields = gatesSection ? gatesSection.fields : [];
 
     // Gate-level showIf: skip a conditional gate until its condition holds.
-    // showIf is one condition, or an array of them meaning OR (any match shows
-    // the gate) — otherPartyPresent uses the array form.
-    const condHolds = (c) => {
-      const actual = values[c.key];
-      if ("notEquals" in c) return actual !== c.notEquals;
-      return actual === c.equals;
-    };
     const gateVisible = (f) => {
       if (!f.showIf) return true;
-      return Array.isArray(f.showIf) ? f.showIf.some(condHolds) : condHolds(f.showIf);
+      const actual = values[f.showIf.key];
+      if ("notEquals" in f.showIf) return actual !== f.showIf.notEquals;
+      return actual === f.showIf.equals;
     };
 
     // Push a gate and, when its answer calls for it, the "stop and call" step
@@ -524,13 +519,17 @@ export default function IncidentFormWizard() {
     // not severity: it is whether there is still someone to talk to. Someone
     // hurt, or the other party standing there while safety can still settle it
     // directly, before police, a report, or a citation.
+    const hurt = values.anyoneInjured === "Yes" || values.otherPartiesInjured === "Yes";
     const pushGate = (f) => {
       out.push({ kind: "gate", field: f });
       if (f.key === "anyoneInjured" && values.anyoneInjured === "Yes") {
         out.push({ kind: "callNow", reason: "Someone is hurt." });
       }
-      if (f.key === "otherPartyPresent" && values.otherPartyPresent === "Yes, they are here") {
-        out.push({ kind: "callNow", reason: "The other party is still there with you." });
+      // Presence fires the call only when nobody is hurt — an injury already put
+      // the same screen in front of the driver earlier in the flow.
+      if (f.key === "otherPartyPresent" && !hurt &&
+          values.otherPartyPresent === "Yes, they are here") {
+        out.push({ kind: "callNow", reason: "The other driver or owner is still there with you." });
       }
     };
 
@@ -728,7 +727,17 @@ export default function IncidentFormWizard() {
         {current?.kind === "types" && <TypesScreen types={types} setTypes={setTypes} />}
 
         {current?.kind === "group" && (
-          <GroupScreen title={current.title} subtitle={current.subtitle} fields={current.fields} values={values} set={set} />
+          <GroupScreen
+            title={current.title}
+            subtitle={current.subtitle}
+            fields={current.fields}
+            values={values}
+            set={set}
+            uploads={uploads}
+            onCapture={capturePhoto}
+            onRetry={retryPhoto}
+            onRemove={removePhoto}
+          />
         )}
 
         {current?.kind === "checklist" && (
@@ -872,7 +881,7 @@ function TypesScreen({ types, setTypes }) {
   );
 }
 
-function GroupScreen({ title, subtitle, fields, values, set }) {
+function GroupScreen({ title, subtitle, fields, values, set, uploads, onCapture, onRetry, onRemove }) {
   return (
     <div>
       <h1 className="text-xl font-medium">{title}</h1>
@@ -880,9 +889,23 @@ function GroupScreen({ title, subtitle, fields, values, set }) {
         <p className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">{subtitle}</p>
       )}
       <div className="mt-5 flex flex-col gap-5">
-        {fields.map((f) => (
-          <Field key={f.key} field={f} values={values} set={set} />
-        ))}
+        {fields.map((f) =>
+          // Photo fields can now live on a plain section (the ticket photo moved
+          // out of the checklist into citationFinal), so render them the same way
+          // the checklist does rather than as a text input.
+          f.type === "photo" ? (
+            <PhotoField
+              key={f.key}
+              field={f}
+              list={(uploads && uploads[f.key]) || []}
+              onCapture={onCapture}
+              onRetry={onRetry}
+              onRemove={onRemove}
+            />
+          ) : (
+            <Field key={f.key} field={f} values={values} set={set} />
+          )
+        )}
       </div>
     </div>
   );
