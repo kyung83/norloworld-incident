@@ -410,11 +410,19 @@ function computeSeverity_(p) {
   if (yes_(p.fatality))              reasons.push('Fatality');
   if (yes_(p.anyoneInjured))         reasons.push('Injury reported');
   if (yes_(p.medicalAwayFromScene))  reasons.push('Medical treatment away from scene');
-  if (yes_(p.otherVehicleInvolved))  reasons.push('Another vehicle involved');
   if (yes_(p.pedestrianInvolved))    reasons.push('Pedestrian or cyclist involved');
   if (yes_(p.rollover))              reasons.push('Rollover or jackknife');
   if (yes_(p.hazmatOrFuelSpill))     reasons.push('Fuel, oil, or hazmat spill');
   if (yes_(p.driverRequestsContact)) reasons.push('Driver asked to be contacted now');
+
+  // Another party STILL THERE is the Tier 1 trigger, not another party as such.
+  // The value of the call is the window to settle it directly — admit fault,
+  // send us the invoice — before police, a report, or a citation. Once they have
+  // driven off that window is shut and the damage keeps until morning.
+  var present = String(p.otherPartyPresent || '').toLowerCase().indexOf('yes') === 0;
+  if (present) {
+    reasons.push('Other party still on scene — settle it before police are involved');
+  }
 
   // Police attending a parking-lot scrape is not by itself a wakeup. Police
   // attending something with another party in it is.
@@ -464,6 +472,11 @@ function computeSeverity_(p) {
   // ---- TIER 2 ---------------------------------------------------------------
   // Real, but it keeps until someone is awake and looking.
 
+  // Another vehicle, but the other party has already left — nothing for safety
+  // to negotiate tonight, so it drops to the morning queue rather than a page.
+  if (yes_(p.otherVehicleInvolved) && !present) {
+    reasons.push('Another vehicle involved, other party has left');
+  }
   if (yes_(p.citationIssued))      reasons.push('Citation issued, no tow or injury');
   if (yes_(p.freightDamaged))      reasons.push('Freight damaged');
   if (no_(p.truckDrivable))        reasons.push('Truck not drivable');
@@ -1111,8 +1124,13 @@ function runSelfTest() {
   t = baseline(); t.citationIssued = 'Yes'; t.towRequired = 'Yes';
   check('Citation WITH tow (DOT testing clock)', computeSeverity_(t).tier, 1);
 
+  // Another vehicle is no longer Tier 1 on its own — only if the other party is
+  // still there. Gone, and it drops to the morning queue.
   t = baseline(); t.otherVehicleInvolved = 'Yes';
-  check('Another vehicle involved', computeSeverity_(t).tier, 1);
+  check('Another vehicle, other party has left', computeSeverity_(t).tier, 2);
+
+  t = baseline(); t.otherVehicleInvolved = 'Yes'; t.otherPartyPresent = 'Yes, they are here';
+  check('Another vehicle, other party still present', computeSeverity_(t).tier, 1);
 
   t = baseline(); t.anyoneInjured = 'Yes';
   check('Someone hurt', computeSeverity_(t).tier, 1);

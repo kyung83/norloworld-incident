@@ -78,6 +78,10 @@ export const SECTIONS = [
       { key: "pedestrianInvolved", label: "Was a pedestrian or cyclist involved?", type: "select", options: YNU, required: true },
       { key: "otherVehicleInvolved", label: "Was another vehicle involved?", type: "select", options: YNU, required: true },
       { key: "otherPartyInvolved", label: "Did you hit anything that isn't ours?", sublabel: "A building, fence, pole, parked car, a customer's dock — anything belonging to someone else.", type: "select", options: YNU, required: true, showIf: { key: "otherVehicleInvolved", notEquals: "Yes" } },
+      // "Nobody was ever there" covers an unattended parked car, a fence, an empty
+      // dock — property with an owner who was never on scene. Different from a
+      // driver who left, and worth telling apart in the record.
+      { key: "otherPartyPresent", label: "Is the other driver or owner still there with you?", type: "select", options: ["Yes, they are here", "No, they already left", "Nobody was ever there"], required: true, showIf: { key: "otherPartyInvolved", equals: "Yes" } },
       { key: "policeOnScene", label: "Are police on scene, or was a report taken?", type: "select", options: YNU, required: true },
       { key: "citationIssued", label: "Was anyone issued a ticket or citation?", type: "select", options: YNU, required: true },
       { key: "rollover", label: "Did the truck roll over or jackknife?", type: "select", options: YNU, required: true },
