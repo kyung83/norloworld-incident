@@ -49,6 +49,25 @@ const US_STATES = [
   "VA","WA","WV","WI","WY","DC","ON","QC",
 ];
 
+// Home terminals — from the Division column of the recruiting tab plus the WEX
+// card tab. Confirm before shipping; a few may be closed.
+const TERMINALS = [
+  "CLARE",
+  "BYRON CENTER",
+  "TAYLOR",
+  "LUDINGTON",
+  "CADILLAC",
+  "BOYNE CITY",
+  "EDMORE",
+  "FLINT",
+  "LANSING",
+  "ROSCOMMON",
+  "ALPENA",
+  "FORT WAYNE, IN",
+  "SUSSEX, WI",
+  "FOND DU LAC, WI",
+];
+
 // Section: { id, title, subtitle?, types, showIf?, fields? | rows? }
 // field: { key, label, type, options?, required?, requiredIf?, hint?, placeholder? }
 // field.type: 'text' | 'textarea' | 'date' | 'time' | 'select' | 'photo'
@@ -60,6 +79,8 @@ export const SECTIONS = [
     fields: [
       { key: "driverFirstName", label: "First Name", type: "text", required: true },
       { key: "driverLastName", label: "Last Name", type: "text", required: true },
+      { key: "homeTerminal", label: "Home Terminal", type: "select", options: TERMINALS, required: true },
+      { key: "driverRole", label: "What do you drive?", type: "select", options: ["Dry van — OTR", "Dry van — Local", "Flatbed — OTR", "Flatbed — Local", "Box truck", "Other"], required: true },
       { key: "truckNumber", label: "Northern Truck #", type: "text", inputMode: "numeric", required: true },
       { key: "trailerNumber", label: "Northern Trailer #", type: "text", inputMode: "numeric", required: true },
       { key: "dateOfIncident", label: "Date of Incident", type: "date", required: true },
