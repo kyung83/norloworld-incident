@@ -453,6 +453,13 @@ function computeSeverity_(p) {
     'citationIssued', 'rollover', 'hazmatOrFuelSpill',
     'truckDrivable', 'towRequired', 'vehicleStuck'
   ];
+  // otherPartyPresent is only asked — and only required — when there is another
+  // party: another vehicle, or property of theirs we hit. It mirrors the form's
+  // showIf. Adding it unconditionally would escalate every single-vehicle
+  // incident on a blank the driver was never shown.
+  if (yes_(p.otherVehicleInvolved) || yes_(p.otherPartyInvolved)) {
+    gates.push('otherPartyPresent');
+  }
   var missing = [];
   for (var i = 0; i < gates.length; i++) {
     var v = p[gates[i]];
@@ -1126,11 +1133,16 @@ function runSelfTest() {
 
   // Another vehicle is no longer Tier 1 on its own — only if the other party is
   // still there. Gone, and it drops to the morning queue.
-  t = baseline(); t.otherVehicleInvolved = 'Yes';
+  t = baseline(); t.otherVehicleInvolved = 'Yes'; t.otherPartyPresent = 'No, they already left';
   check('Another vehicle, other party has left', computeSeverity_(t).tier, 2);
 
   t = baseline(); t.otherVehicleInvolved = 'Yes'; t.otherPartyPresent = 'Yes, they are here';
   check('Another vehicle, other party still present', computeSeverity_(t).tier, 1);
+
+  // Present-gate is shown once another vehicle is involved; left blank, we don't
+  // know if they're still there, so fail upward rather than assume they left.
+  t = baseline(); t.otherVehicleInvolved = 'Yes';
+  check('Another vehicle, present unanswered (fail upward)', computeSeverity_(t).tier, 1);
 
   t = baseline(); t.anyoneInjured = 'Yes';
   check('Someone hurt', computeSeverity_(t).tier, 1);

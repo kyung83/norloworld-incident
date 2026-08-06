@@ -81,7 +81,13 @@ export const SECTIONS = [
       // "Nobody was ever there" covers an unattended parked car, a fence, an empty
       // dock — property with an owner who was never on scene. Different from a
       // driver who left, and worth telling apart in the record.
-      { key: "otherPartyPresent", label: "Is the other driver or owner still there with you?", type: "select", options: ["Yes, they are here", "No, they already left", "Nobody was ever there"], required: true, showIf: { key: "otherPartyInvolved", equals: "Yes" } },
+      //
+      // showIf is an array here, meaning OR (any match shows the gate): asked
+      // both when another vehicle was involved AND when we hit someone's
+      // property. The moving-collision case — another driver still standing there
+      // while safety can settle it directly — is the one this whole screen exists
+      // for, so it must be asked there, not only in the property case.
+      { key: "otherPartyPresent", label: "Is the other driver or owner still there with you?", type: "select", options: ["Yes, they are here", "No, they already left", "Nobody was ever there"], required: true, showIf: [{ key: "otherVehicleInvolved", equals: "Yes" }, { key: "otherPartyInvolved", equals: "Yes" }] },
       { key: "policeOnScene", label: "Are police on scene, or was a report taken?", type: "select", options: YNU, required: true },
       { key: "citationIssued", label: "Was anyone issued a ticket or citation?", type: "select", options: YNU, required: true },
       { key: "rollover", label: "Did the truck roll over or jackknife?", type: "select", options: YNU, required: true },

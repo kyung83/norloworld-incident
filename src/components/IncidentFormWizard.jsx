@@ -506,11 +506,16 @@ export default function IncidentFormWizard() {
     const gateFields = gatesSection ? gatesSection.fields : [];
 
     // Gate-level showIf: skip a conditional gate until its condition holds.
+    // showIf is one condition, or an array of them meaning OR (any match shows
+    // the gate) — otherPartyPresent uses the array form.
+    const condHolds = (c) => {
+      const actual = values[c.key];
+      if ("notEquals" in c) return actual !== c.notEquals;
+      return actual === c.equals;
+    };
     const gateVisible = (f) => {
       if (!f.showIf) return true;
-      const actual = values[f.showIf.key];
-      if ("notEquals" in f.showIf) return actual !== f.showIf.notEquals;
-      return actual === f.showIf.equals;
+      return Array.isArray(f.showIf) ? f.showIf.some(condHolds) : condHolds(f.showIf);
     };
 
     // Push a gate and, when its answer calls for it, the "stop and call" step
