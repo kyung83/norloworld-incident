@@ -95,14 +95,13 @@ export const SECTIONS = [
     fields: [
       { key: "anyoneInjured", label: "Is anyone injured as a result of this incident?", sublabel: "Northern employee or any other party", type: "select", options: ["Yes", "No"], required: true },
       { key: "medicalAwayFromScene", label: "Did anyone leave the scene for medical treatment?", type: "select", options: YNU, required: true },
-      { key: "otherVehicleInvolved", label: "Was another vehicle involved on a public road?", sublabel: "Including a legally parked car. A parking lot or private property is not a public road.", type: "select", options: YNU, required: true },
-      // The umbrella "another party" gate. Only ASKED when no vehicle was
-      // involved (No/Unknown) — a collision means another party by definition, so
-      // the wizard auto-sets this to "Yes" and skips the question. The value
-      // still rides in the payload (the backend reads it), and the presence gate
-      // below (showIf otherPartyInvolved === "Yes") is therefore still reached on
-      // a collision. See the auto-set effect in IncidentFormWizard.jsx.
-      { key: "otherPartyInvolved", label: "Is anyone else's vehicle or property involved?", sublabel: "Their car, a building, a fence, a parked vehicle — anything not ours. Whether you hit them or they hit you.", type: "select", options: YNU, required: true, showIf: { key: "otherVehicleInvolved", notEquals: "Yes" } },
+      { key: "otherVehicleInvolved", label: "Was another vehicle involved on a public road?", sublabel: "Including a legally parked car. A parking lot or private property is not a public road.", type: "select", options: ["Yes", "No"], required: true },
+      // The property question — only ASKED when no vehicle was involved (a vehicle
+      // is Tier 1 on its own). On a collision the wizard auto-sets this to "Yes"
+      // and skips it, so the presence gate below (showIf otherPartyInvolved ===
+      // "Yes") is still reached and the other driver's presence is recorded. See
+      // the auto-set effect in IncidentFormWizard.jsx.
+      { key: "otherPartyInvolved", label: "Was property damaged that Northern does not own?", sublabel: "A fence, pole, building, dock, lawn — or a vehicle in a parking lot or on a customer's property.", type: "select", options: ["Yes", "No"], required: true, showIf: { key: "otherVehicleInvolved", notEquals: "Yes" } },
       // "Nobody was ever there" is a real third case — an unattended parked car,
       // a fence, a closed dock. Different from a driver who left, and safety will
       // want to tell them apart when the claim comes in.

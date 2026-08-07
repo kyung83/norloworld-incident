@@ -408,7 +408,19 @@ function computeSeverity_(p) {
   if (yes_(p.fatality))              reasons.push('Fatality');
   if (yes_(p.anyoneInjured))         reasons.push('Injury reported');
   if (yes_(p.medicalAwayFromScene))  reasons.push('Medical treatment away from scene');
-  if (otherPartyPresent_(p)) {
+  // Another vehicle on a public road is a call, whether or not anyone is
+  // standing there. Michigan is a no-fault state in every instance EXCEPT a
+  // legally parked vehicle — that is the one collision where fault genuinely
+  // gets argued, so it is the one worth reaching the other party about before
+  // a police report exists. Mark's rule, and the reason for it.
+  if (yes_(p.otherVehicleInvolved)) {
+    reasons.push('Another vehicle on a public road — reach the other party before police are involved');
+  }
+
+  // For everything that is NOT another vehicle — a fence, a building, a dock —
+  // presence still decides. Someone standing there can be talked to now; a
+  // dented fence is exactly as dented in the morning.
+  else if (otherPartyPresent_(p)) {
     reasons.push('Other party still on scene — settle it before police are involved');
   }
   if (yes_(p.rollover))              reasons.push('Rollover or jackknife');
@@ -487,8 +499,9 @@ function computeSeverity_(p) {
   // case: the driver documents it, safety picks it up in the morning, and the
   // damaged fence is exactly as damaged then as it is now. Real, not urgent —
   // which is Tier 2, not a silent Tier 3 log nobody is asked to acknowledge.
+  // Property only — another vehicle never reaches here, it is Tier 1 above.
   if (yes_(p.otherPartyInvolved) && !otherPartyPresent_(p)) {
-    reasons.push('Someone else\'s property or vehicle, other party not present');
+    reasons.push('Someone else\'s property, nobody there to speak to');
   }
   if (yes_(p.freightDamaged))      reasons.push('Freight damaged');
   if (no_(p.truckDrivable))        reasons.push('Truck not drivable');
@@ -1274,17 +1287,24 @@ function runSelfTest() {
   t = baseline(); t.policeOnScene = 'Yes, they are here';
   check('Police taking a deer report, no party', computeSeverity_(t).tier, 3);
 
-  t = baseline(); t.otherPartyInvolved = 'Yes';
-  t.otherVehicleInvolved = 'Yes'; t.otherPartyPresent = 'Yes, they are here';
-  check('Other party STILL ON SCENE', computeSeverity_(t).tier, 1);
+  // Another vehicle is a call whatever the presence answer — Michigan no-fault
+  // has a carve-out for parked vehicles, so fault genuinely matters there.
+  t = baseline(); t.otherPartyInvolved = 'Yes'; t.otherVehicleInvolved = 'Yes';
+  t.otherPartyPresent = 'Yes, they are here';
+  check('Another vehicle, driver present', computeSeverity_(t).tier, 1);
 
+  t = baseline(); t.otherPartyInvolved = 'Yes'; t.otherVehicleInvolved = 'Yes';
+  t.otherPartyPresent = 'Nobody was ever there';
+  check('Legally parked car, owner absent', computeSeverity_(t).tier, 1);
+
+  // Property is different — presence still decides.
   t = baseline(); t.otherPartyInvolved = 'Yes';
-  t.otherVehicleInvolved = 'Yes'; t.otherPartyPresent = 'No, they already left';
-  check('Other party GONE — morning, not a call', computeSeverity_(t).tier, 2);
+  t.otherPartyPresent = 'Yes, they are here';
+  check('Property, owner standing there', computeSeverity_(t).tier, 1);
 
   t = baseline(); t.otherPartyInvolved = 'Yes';
   t.otherPartyPresent = 'Nobody was ever there';
-  check('Property damage, nobody there', computeSeverity_(t).tier, 2);
+  check('Property, nobody there', computeSeverity_(t).tier, 2);
 
   t = baseline(); t.anyoneInjured = 'Yes';
   check('Someone hurt', computeSeverity_(t).tier, 1);
