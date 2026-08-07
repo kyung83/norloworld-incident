@@ -14,10 +14,9 @@ const DRAFT_KEY = "norlo-incident-draft-v1";
 // would put a previous incident's answers on today's report.
 const DRAFT_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6 hours
 const FIRST_GATE = "anyoneInjured";
-// Gates shown before the identity section, in order. Each still respects its own
-// showIf (otherPartiesInjured only when anyoneInjured === "Yes"); every other
-// gate comes after identity.
-const LEADING_GATES = [FIRST_GATE, "otherPartiesInjured", "pedestrianInvolved"];
+// Gates shown before the identity section. Only the first injury gate leads;
+// every other gate comes after identity.
+const LEADING_GATES = [FIRST_GATE];
 
 // "just now" / "3 minutes ago" / "2 hours ago" for the resume banner.
 function timeAgo(ts) {
@@ -519,7 +518,7 @@ export default function IncidentFormWizard() {
     // not severity: it is whether there is still someone to talk to. Someone
     // hurt, or the other party standing there while safety can still settle it
     // directly, before police, a report, or a citation.
-    const hurt = values.anyoneInjured === "Yes" || values.otherPartiesInjured === "Yes";
+    const hurt = values.anyoneInjured === "Yes";
     const pushGate = (f) => {
       out.push({ kind: "gate", field: f });
       if (f.key === "anyoneInjured" && values.anyoneInjured === "Yes") {

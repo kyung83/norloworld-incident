@@ -94,9 +94,7 @@ export const SECTIONS = [
     types: null, // ALWAYS shown — these drive severity tiering.
     fields: [
       { key: "anyoneInjured", label: "Is anyone injured as a result of this incident?", sublabel: "Northern employee or any other party", type: "select", options: ["Yes", "No"], required: true },
-      { key: "otherPartiesInjured", label: "Is anyone in the other vehicle hurt?", type: "select", options: YNU, required: true, showIf: { key: "anyoneInjured", equals: "Yes" } },
       { key: "medicalAwayFromScene", label: "Did anyone leave the scene for medical treatment?", type: "select", options: YNU, required: true },
-      { key: "pedestrianInvolved", label: "Was a pedestrian or cyclist involved?", type: "select", options: YNU, required: true },
       { key: "otherVehicleInvolved", label: "Was another vehicle involved?", type: "select", options: YNU, required: true },
       // The umbrella "another party" gate. Only ASKED when no vehicle was
       // involved (No/Unknown) — a collision means another party by definition, so
@@ -118,7 +116,6 @@ export const SECTIONS = [
       { key: "towRequired", label: "Does anything need to be towed?", type: "select", options: YNU, required: true },
       { key: "vehicleStuck", label: "Are you stuck?", type: "select", options: YNU, required: true },
       { key: "freightDamaged", label: "Was the load damaged?", type: "select", options: YNU, required: true },
-      { key: "driverRequestsContact", label: "Do you need someone to call you right now?", type: "select", options: YN, required: true },
     ],
   },
   {
