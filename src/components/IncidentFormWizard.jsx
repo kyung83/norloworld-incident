@@ -524,11 +524,25 @@ export default function IncidentFormWizard() {
       if (f.key === "anyoneInjured" && values.anyoneInjured === "Yes") {
         out.push({ kind: "callNow", reason: "Someone is hurt." });
       }
-      // Presence fires the call only when nobody is hurt — an injury already put
-      // the same screen in front of the driver earlier in the flow.
+      // Any vehicle on a public road is a Tier 1 call, present or not — Michigan
+      // is no-fault except for a parked vehicle, so fault is argued exactly there
+      // and only while the window is open. The backend already tiers this; the
+      // screen makes the form say so. Guarded by !hurt so injury owns the screen.
+      if (f.key === "otherVehicleInvolved" && !hurt &&
+          values.otherVehicleInvolved === "Yes") {
+        out.push({
+          kind: "callNow",
+          reason: "Another vehicle was involved on a public road.",
+          body: "Safety may be able to settle this directly with the other owner before police are involved — even if nobody is here now. Michigan is no-fault except for parked vehicles, so this is the one where fault matters.",
+        });
+      }
+      // Presence fires the call only when nobody is hurt AND no vehicle was
+      // involved (a vehicle already raised the screen above), so it appears
+      // exactly once per submission.
       if (f.key === "otherPartyPresent" && !hurt &&
+          values.otherVehicleInvolved !== "Yes" &&
           values.otherPartyPresent === "Yes, they are here") {
-        out.push({ kind: "callNow", reason: "The other driver or owner is still there with you." });
+        out.push({ kind: "callNow", reason: "The owner is still there with you." });
       }
     };
 
@@ -757,6 +771,7 @@ export default function IncidentFormWizard() {
         {current?.kind === "callNow" && (
           <CallNowScreen
             reason={current.reason}
+            body={current.body}
             onCalled={() => {
               set("calledSafety", "Yes");
               setStep((s) => s + 1);
@@ -1330,7 +1345,7 @@ function CallBar() {
 // driver either confirms he called or says why he could not. Same no-dial
 // treatment as CallBar: the number is text, read off the tablet and dialed from
 // the phone in the driver's other hand.
-function CallNowScreen({ reason, onCalled, onCannot }) {
+function CallNowScreen({ reason, body, onCalled, onCannot }) {
   const [cannot, setCannot] = useState(false);
   const [why, setWhy] = useState("");
   const [armed, setArmed] = useState(false);
@@ -1350,9 +1365,8 @@ function CallNowScreen({ reason, onCalled, onCannot }) {
       <p className="mt-3 text-base text-red-100">{reason}</p>
 
       <p className="mt-3 text-sm text-red-200">
-        Safety may be able to settle this directly with the other party before
-        police get involved. That is much better for you and for us — but only
-        while they are still there.
+        {body ||
+          "Safety may be able to settle this directly with the other party before police get involved. That is much better for you and for us — but only while they are still there."}
       </p>
 
       <p className="mt-5 text-center text-xs uppercase tracking-wide text-red-300">Driver Line</p>
