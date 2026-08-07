@@ -95,7 +95,7 @@ export const SECTIONS = [
     fields: [
       { key: "anyoneInjured", label: "Is anyone injured as a result of this incident?", sublabel: "Northern employee or any other party", type: "select", options: ["Yes", "No"], required: true },
       { key: "medicalAwayFromScene", label: "Did anyone leave the scene for medical treatment?", type: "select", options: YNU, required: true },
-      { key: "otherVehicleInvolved", label: "Was another vehicle involved?", type: "select", options: YNU, required: true },
+      { key: "otherVehicleInvolved", label: "Was another vehicle involved on a public road?", sublabel: "Including a legally parked car. A parking lot or private property is not a public road.", type: "select", options: YNU, required: true },
       // The umbrella "another party" gate. Only ASKED when no vehicle was
       // involved (No/Unknown) — a collision means another party by definition, so
       // the wizard auto-sets this to "Yes" and skips the question. The value
