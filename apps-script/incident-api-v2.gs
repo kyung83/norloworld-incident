@@ -411,10 +411,8 @@ function computeSeverity_(p) {
   if (otherPartyPresent_(p)) {
     reasons.push('Other party still on scene — settle it before police are involved');
   }
-  if (yes_(p.pedestrianInvolved))    reasons.push('Pedestrian or cyclist involved');
   if (yes_(p.rollover))              reasons.push('Rollover or jackknife');
   if (yes_(p.hazmatOrFuelSpill))     reasons.push('Fuel, oil, or hazmat spill');
-  if (yes_(p.driverRequestsContact)) reasons.push('Driver asked to be contacted now');
 
   // Police attending a parking-lot scrape is not by itself a wakeup. Police
   // attending something with another party in it is.
@@ -440,11 +438,17 @@ function computeSeverity_(p) {
   // not evidence of absence. Escalate rather than assume.
 
   var gates = [
-    'anyoneInjured', 'medicalAwayFromScene', 'pedestrianInvolved',
+    'anyoneInjured', 'medicalAwayFromScene',
     'otherVehicleInvolved', 'otherPartyInvolved',
     'rollover', 'hazmatOrFuelSpill',
     'truckDrivable', 'towRequired', 'vehicleStuck'
   ];
+  // pedestrianInvolved and driverRequestsContact were removed from the form.
+  // Leaving either in this list would mark every submission as having an
+  // unanswered gate and escalate all of them to Tier 1 — the exact failure
+  // this project exists to prevent. anyoneInjured now covers both parties
+  // ("Northern employee or any other party") and is Yes/No: safety wants a
+  // decision, not an Unknown that drivers use to move on.
   // policeOnScene and citationIssued are deliberately NOT in that list. Both
   // now have an "Unknown" option that is a legitimate answer rather than a
   // skipped question, and citationIssued is asked at the END of the form — a
@@ -1241,11 +1245,10 @@ function runSelfTest() {
   // starts from this and changes one thing.
   function baseline() {
     return {
-      anyoneInjured: 'No', medicalAwayFromScene: 'No', pedestrianInvolved: 'No',
+      anyoneInjured: 'No', medicalAwayFromScene: 'No',
       otherVehicleInvolved: 'No', otherPartyInvolved: 'No', policeOnScene: 'No',
       citationIssued: 'No', rollover: 'No', hazmatOrFuelSpill: 'No',
-      truckDrivable: 'Yes', towRequired: 'No', vehicleStuck: 'No',
-      driverRequestsContact: 'No'
+      truckDrivable: 'Yes', towRequired: 'No', vehicleStuck: 'No'
     };
   }
 
@@ -1295,8 +1298,8 @@ function runSelfTest() {
   t = baseline(); t.otherPartyInvolved = 'Yes';   // presence never answered
   check('Other party involved, presence blank', computeSeverity_(t).tier, 1);
 
-  t = baseline(); t.driverRequestsContact = 'Yes';
-  check('Driver asks to be called', computeSeverity_(t).tier, 1);
+  t = baseline(); t.hazmatOrFuelSpill = 'Yes';
+  check('Fluid leaking', computeSeverity_(t).tier, 1);
 
   Logger.log('--- Column lookups ---');
   // Watch the em dashes: "Photo — Scene" (em dash) will NOT match "Photo - Scene"
