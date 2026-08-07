@@ -93,7 +93,7 @@ export const SECTIONS = [
     subtitle: "If anyone is hurt, stop and call the driver line, option 6.",
     types: null, // ALWAYS shown — these drive severity tiering.
     fields: [
-      { key: "anyoneInjured", label: "Are you or anyone in your truck hurt?", type: "select", options: YNU, required: true },
+      { key: "anyoneInjured", label: "Is anyone injured as a result of this incident?", sublabel: "Northern employee or any other party", type: "select", options: ["Yes", "No"], required: true },
       { key: "otherPartiesInjured", label: "Is anyone in the other vehicle hurt?", type: "select", options: YNU, required: true, showIf: { key: "anyoneInjured", equals: "Yes" } },
       { key: "medicalAwayFromScene", label: "Did anyone leave the scene for medical treatment?", type: "select", options: YNU, required: true },
       { key: "pedestrianInvolved", label: "Was a pedestrian or cyclist involved?", type: "select", options: YNU, required: true },
