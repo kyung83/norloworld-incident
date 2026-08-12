@@ -485,8 +485,7 @@ function computeSeverity_(p) {
   var missing = [];
   for (var i = 0; i < gates.length; i++) {
     var v = p[gates[i]];
-    if (v === undefined || v === null || String(v).trim() === '' ||
-        ['unsure','unknown','n/a'].indexOf(String(v).trim().toLowerCase()) > -1) {
+    if (v === undefined || v === null || String(v).trim() === '' || uncertain_(v)) {
       missing.push(gates[i]);
     }
   }
@@ -1257,6 +1256,25 @@ function policeInvolved_(p) {
  * be exactly as stuck tomorrow, so there is no window closing and nothing for a
  * call to change. It is a text to safety and an immediate dispatch to breakdown.
  */
+/**
+ * Is this answer a non-answer?
+ *
+ * A bare "Unknown" means the driver did not find out, and that escalates. But
+ * "Unknown — sealed load" is a fact, not a shrug: the trailer is sealed and he
+ * cannot look without breaking the seal. Treating that as an unanswered gate
+ * would page safety for every sealed load, which is the opposite of useful.
+ *
+ * The rule: an answer that only says "unknown" is uncertain. An answer that
+ * says unknown AND gives a reason is an answer.
+ */
+function uncertain_(v) {
+  var s = String(v == null ? '' : v).trim().toLowerCase();
+  if (!s) return true;
+  if (s === 'unsure' || s === 'unknown' || s === 'n/a') return true;
+  // "unknown — sealed load" and anything else qualified: not uncertain.
+  return false;
+}
+
 function isStuck_(p) {
   var v = String(p.vehicleStuck || '').trim().toLowerCase();
   if (!v || v === 'no') return false;

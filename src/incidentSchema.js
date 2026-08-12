@@ -108,18 +108,18 @@ export const SECTIONS = [
       { key: "otherPartyPresent", label: "Is the other driver or owner still there with you?", type: "select", options: ["Yes, they are here", "No, they already left", "Nobody was ever there"], required: true, showIf: { key: "otherPartyInvolved", equals: "Yes" } },
       // "Called, not here yet" is the state that matters most: the window is
       // closing but has not shut. Yes/No collapsed it into the wrong answer.
-      { key: "policeOnScene", label: "Are police on scene?", type: "select", options: ["Yes, they are here", "Called, not here yet", "No", "Unknown"], required: true },
-      { key: "rollover", label: "Did the truck roll over or jackknife?", type: "select", options: YNU, required: true },
-      { key: "hazmatOrFuelSpill", label: "Is fuel, oil, or any other fluid leaking?", type: "select", options: YNU, required: true },
-      { key: "truckDrivable", label: "Is the truck safe to drive right now?", type: "select", options: YNU, required: true },
-      { key: "towRequired", label: "Does anything need to be towed?", type: "select", options: YNU, required: true },
+      { key: "policeOnScene", label: "Are police on scene?", type: "select", options: ["Yes, they are here", "Called, not here yet", "No"], required: true },
+      { key: "rollover", label: "Did the truck roll over or jackknife?", type: "select", options: ["Yes", "No"], required: true },
+      { key: "hazmatOrFuelSpill", label: "Is fuel, oil, or any other fluid leaking?", type: "select", options: ["Yes", "No"], required: true },
+      { key: "truckDrivable", label: "Is the truck safe to drive right now?", type: "select", options: ["Yes", "No"], required: true },
+      { key: "towRequired", label: "Does anything need to be towed?", type: "select", options: ["Yes", "No"], required: true },
       // Location does not change the tier — every stuck truck is a text and an
       // immediate breakdown dispatch (it will be exactly as stuck tomorrow). It
       // is asked because a median wrecker is a different job than a shoulder pull,
       // and breakdown needs to know before they send someone.
       { key: "vehicleStuck", label: "Are you stuck?", type: "select", options: ["No", "Yes — side of the road or shoulder", "Yes — median", "Yes — ditch or embankment", "Yes — field or off-road", "Yes — dirt road or two-track", "Yes — customer property, yard, or lot", "Yes — somewhere else"], required: true },
       { key: "stuckWhere", label: "Where exactly?", hint: "Enough for a wrecker to find you and know what they are bringing.", type: "textarea", required: true, showIf: { key: "vehicleStuck", equals: "Yes — somewhere else" } },
-      { key: "freightDamaged", label: "Was the load damaged?", type: "select", options: YNU, required: true },
+      { key: "freightDamaged", label: "Was the load damaged?", type: "select", options: ["Yes", "No", "Unknown — sealed load"], required: true },
     ],
   },
   {
