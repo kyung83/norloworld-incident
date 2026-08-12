@@ -227,8 +227,13 @@ export const SECTIONS = [
         label: "Was another vehicle involved?",
         answeredBy: "otherVehicleInvolved",
         revealOn: "Yes",
+        // A fled or unreachable vehicle can't be photographed from three sides.
+        // This escape is why the minPhotos requirement below never traps a
+        // hit-and-run driver — mark it N/A and the photo requirement clears.
+        naReasons: ["Vehicle left the scene", "Not safe to approach", "Other — I'll explain"],
         fields: [
-          { key: "photoOtherVehicle", label: "Their vehicle — damaged area plus all other sides", type: "photo", multiple: true, hint: "All four sides — add a photo for each. This is what protects us from damage claimed later.", required: true },
+          { key: "photoOtherVehicleDamage", label: "The damaged area on their vehicle", hint: "Close enough to see the damage clearly. More than one angle is better.", type: "photo", multiple: true, required: true },
+          { key: "photoOtherVehicleUndamaged", label: "The sides we did NOT damage — at least 3 photos", hint: "Front, back, and the other side. This is what stops a claim for damage that was already there.", type: "photo", multiple: true, required: true, minPhotos: 3 },
         ],
       },
       // Asked: full three buttons.
