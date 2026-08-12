@@ -113,7 +113,12 @@ export const SECTIONS = [
       { key: "hazmatOrFuelSpill", label: "Is fuel, oil, or any other fluid leaking?", type: "select", options: YNU, required: true },
       { key: "truckDrivable", label: "Is the truck safe to drive right now?", type: "select", options: YNU, required: true },
       { key: "towRequired", label: "Does anything need to be towed?", type: "select", options: YNU, required: true },
-      { key: "vehicleStuck", label: "Are you stuck?", type: "select", options: YNU, required: true },
+      // Location does not change the tier — every stuck truck is a text and an
+      // immediate breakdown dispatch (it will be exactly as stuck tomorrow). It
+      // is asked because a median wrecker is a different job than a shoulder pull,
+      // and breakdown needs to know before they send someone.
+      { key: "vehicleStuck", label: "Are you stuck?", type: "select", options: ["No", "Yes — side of the road or shoulder", "Yes — median", "Yes — ditch or embankment", "Yes — field or off-road", "Yes — dirt road or two-track", "Yes — customer property, yard, or lot", "Yes — somewhere else"], required: true },
+      { key: "stuckWhere", label: "Where exactly?", hint: "Enough for a wrecker to find you and know what they are bringing.", type: "textarea", required: true, showIf: { key: "vehicleStuck", equals: "Yes — somewhere else" } },
       { key: "freightDamaged", label: "Was the load damaged?", type: "select", options: YNU, required: true },
     ],
   },
@@ -159,6 +164,7 @@ export const SECTIONS = [
     types: ["damageOurs", "animalStrike"],
     fields: [
       { key: "ourDamageWhat", label: "What is damaged?", type: "textarea", placeholder: "Tractor, trailer, tires, mirror, reefer unit…", required: true },
+      { key: "photoOurEquipment", label: "Damage to our equipment — at least 2 photos", hint: "Different angles. Include the unit number in at least one shot.", type: "photo", multiple: true, required: true, minPhotos: 2 },
     ],
   },
   {
@@ -198,7 +204,7 @@ export const SECTIONS = [
         label: "Pictures of the scene",
         fields: [
           { key: "photoScene", label: "Wide shot of the incident scene", type: "photo", multiple: true, hint: "Stand back far enough to show everything involved and the road.", required: true },
-          { key: "photoOurEquipment", label: "Close-ups of damage to Northern equipment", type: "photo", multiple: true, hint: "One for each thing that's damaged. Include the unit number in at least one shot.", required: true },
+          { key: "photoOurEquipment", label: "Damage to our equipment — at least 2 photos", hint: "Different angles. Include the unit number in at least one shot.", type: "photo", multiple: true, required: true, minPhotos: 2 },
         ],
       },
       // Locked: the gate already answered this. (The ticket row moved to the
