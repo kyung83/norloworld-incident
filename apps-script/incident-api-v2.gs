@@ -58,6 +58,20 @@ var INC = {
 
   TIMEZONE: 'America/Detroit',
 
+  // Every submission emails a summary — all tiers, including Tier 3. Safety
+  // uses it for analytics, and email does not wake anyone, so a deer strike
+  // landing at 2am costs nothing and completes the record.
+  //
+  // OFF by default, and safety@norloworld.com is a live inbox — test traffic
+  // must not land there. To turn it on, or off again in a hurry, set
+  // SUMMARY_EMAIL_ENABLED to "true" in Project Settings → Script Properties.
+  // No redeploy: it is read on every submission.
+  //
+  // While it is off, set SUMMARY_EMAIL_TEST to your own address and summaries
+  // go there instead, so the format can be checked without anyone else seeing
+  // it. Leave that property unset and nothing is sent at all.
+  SUMMARY_EMAIL: 'safety@norloworld.com',
+
   // Leave true until Riley and Mark have signed off on the tier definitions.
   // Rows still land in the sheet; nobody's phone rings.
   DRY_RUN: true,
@@ -664,6 +678,10 @@ function createIncident(p) {
       };
     }
 
+    // Sent for every tier. Deliberately after the row is written and outside
+    // the lock — a mail failure must never cost the incident record.
+    emailSummary_(p, sev, caseNumber, photoFolderUrl, rowNum);
+
     var notify = { sent: false, reason: 'Tier ' + sev.tier + ' — queued, no SMS' };
     if (sev.tier === 1) {
       notify = notifyTier1_(rowNum, id, p, sev, caseNumber, photoFolderUrl);
@@ -673,7 +691,7 @@ function createIncident(p) {
     var spawned = null;
     if (INC.BREAKDOWN_SPAWN_ENABLED &&
         (sev.lane === 'BREAKDOWN' || sev.lane === 'BOTH')) {
-      spawned = spawnBreakdown_(id, p);
+      spawned = spawnBreakdown_(caseNumber, p, sev);
     }
 
     return {
@@ -704,6 +722,145 @@ function createIncident(p) {
  * REQUIRES the one-line change to blastForClaim_ so the group is an argument
  * rather than CFG.CLAIM_GROUP. See the note at the bottom of this file.
  */
+/**
+ * Emails a readable summary of every submission to safety.
+ *
+ * Not a notification — the texts do that. This is the record: one email per
+ * incident, searchable by case number, driver or truck, and complete enough
+ * that safety can answer a question months later without opening the sheet.
+ *
+ * Every answer the driver gave is included, not a selection. The point is
+ * analytics, and a summary that leaves things out is one somebody has to go
+ * looking past.
+ */
+function emailSummary_(p, sev, caseNumber, photoFolderUrl, rowNum) {
+  var to = summaryRecipient_();
+  if (!to) {
+    Logger.log('[SUMMARY OFF] %s would have emailed a summary', caseNumber);
+    return;
+  }
+  try {
+    var driver = driverFullName_(p) || 'Unknown driver';
+    var tierWord = sev.tier === 1 ? 'TIER 1 — call'
+                 : sev.tier === 2 ? 'Tier 2 — text'
+                 : 'Tier 3 — logged';
+
+    var where = [pick_(p, 'siteName'), pick_(p, 'streetAddress'), p.city, p.state]
+                  .filter(function (x) { return String(x || '').trim(); }).join(', ');
+
+    function row(k, v) {
+      if (v === null || v === undefined || String(v).trim() === '') return '';
+      return '<tr><td style="padding:4px 10px;border-bottom:1px solid #e3e6e3;' +
+             'color:#5a6b5e;width:230px;vertical-align:top;font-size:12px;">' +
+             esc_(k) + '</td><td style="padding:4px 10px;border-bottom:1px solid #e3e6e3;' +
+             'font-size:12px;">' + esc_(String(v)) + '</td></tr>';
+    }
+
+    // Everything the driver answered, minus plumbing and photo URLs. Prettified
+    // keys rather than a curated list, so a question added to the form next
+    // month appears here without anyone remembering to update this.
+    var skip = ['sessionId','submittedAt','incidentTypes','notApplicable','answeredNo',
+                'otherNaCount','driverFirstName','driverLastName','driverName'];
+    var answers = '';
+    Object.keys(p).forEach(function (k) {
+      if (skip.indexOf(k) > -1) return;
+      if (k.charAt(0) === '_') return;
+      if (k.indexOf('photo') === 0) return;
+      var v = p[k];
+      if (Array.isArray(v)) return;
+      if (v === null || v === undefined || String(v).trim() === '') return;
+      var label = k.replace(/([A-Z])/g, ' $1').replace(/^./, function (c) { return c.toUpperCase(); });
+      answers += row(label, v);
+    });
+
+    var photoCount = allPhotoUrls_(p).length;
+
+    var html =
+      '<div style="font-family:Arial,Helvetica,sans-serif;color:#14231a;max-width:720px;">' +
+      '<div style="background:#1e5631;color:#fff;padding:14px 18px;">' +
+        '<div style="font-size:20px;font-weight:700;font-family:monospace;">' + esc_(caseNumber) + '</div>' +
+        '<div style="font-size:12px;color:#a9c4b3;">' + esc_(driver) + ' · Truck ' +
+          esc_(pick_(p, 'truck', 'truckNumber') || '?') + ' · ' + esc_(tierWord) + '</div>' +
+      '</div>' +
+
+      '<div style="padding:12px 18px;background:' +
+        (sev.tier === 1 ? '#fbeeea' : sev.tier === 2 ? '#fdf5e6' : '#f1f3f1') + ';">' +
+        '<b style="font-size:12px;">Why this tier:</b> ' +
+        '<span style="font-size:12px;">' + esc_(sev.reasons.join(' · ')) + '</span>' +
+      '</div>' +
+
+      '<table style="border-collapse:collapse;width:100%;margin-top:14px;">' +
+        row('Type', typeList_(p)) +
+        row('When', pick_(p, 'dateOfIncident') + ' ' + pick_(p, 'timeOfIncident')) +
+        row('Where', where) +
+        row('Driver phone', pick_(p, 'driverPhone', 'driverContact')) +
+        row('Trailer', pick_(p, 'trailer', 'trailerNumber')) +
+        row('Home terminal', pick_(p, 'homeTerminal')) +
+        row('Role', lookupDriverRole_(p)) +
+        row('Lane', sev.lane) +
+        row('Description', pick_(p, 'description')) +
+      '</table>' +
+
+      (answers ?
+        '<div style="margin-top:16px;padding:6px 10px;background:#e8efe9;font-size:11px;' +
+        'font-weight:700;letter-spacing:1px;color:#1e5631;">EVERYTHING THE DRIVER ANSWERED</div>' +
+        '<table style="border-collapse:collapse;width:100%;">' + answers + '</table>' : '') +
+
+      (pick_(p, 'notApplicable') ?
+        '<div style="margin-top:14px;padding:10px;background:#fdf5e6;font-size:12px;">' +
+        '<b>Marked N/A:</b><br>' + esc_(String(p.notApplicable)).replace(/\n/g, '<br>') + '</div>' : '') +
+
+      '<div style="margin-top:16px;padding:10px 0;font-size:12px;color:#5a6b5e;">' +
+        photoCount + ' photo' + (photoCount === 1 ? '' : 's') +
+        (photoFolderUrl ? ' · <a href="' + esc_(photoFolderUrl) + '">open the folder</a>' : '') +
+      '</div>' +
+
+      '<div style="margin-top:8px;font-size:11px;color:#8a938c;">' +
+        'Submitted from the driver tablet. Row ' + rowNum + ' of IncidentsData.' +
+      '</div></div>';
+
+    MailApp.sendEmail({
+      to: to,
+      subject: (to === INC.SUMMARY_EMAIL ? '' : '[TEST] ') +
+               'Incident ' + caseNumber + ' — ' + driver + ' — ' + tierWord,
+      htmlBody: html
+    });
+
+  } catch (err) {
+    // Never let a mail problem affect the submission. The row is already saved.
+    logError_('emailSummary_', err);
+  }
+}
+
+/**
+ * Who gets the summary, or '' for nobody.
+ *
+ * Read from Script Properties rather than config so it can be turned off from a
+ * phone in the middle of the night without a redeploy — the same reasoning as
+ * the kill switch on the form itself.
+ *
+ *   SUMMARY_EMAIL_ENABLED = "true"   →  safety@norloworld.com
+ *   SUMMARY_EMAIL_TEST    = an address → that address, subject prefixed [TEST]
+ *   neither set                       →  nothing is sent, and the log says so
+ *
+ * Off is the default on purpose. safety@ is a live inbox and test traffic in it
+ * is worse than no summary at all.
+ */
+function summaryRecipient_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('SUMMARY_EMAIL_ENABLED') === 'true') return INC.SUMMARY_EMAIL;
+  var test = String(props.getProperty('SUMMARY_EMAIL_TEST') || '').trim();
+  return test || '';
+}
+
+
+function esc_(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+
 function notifyTier1_(rowNum, id, p, sev, caseNumber, photoFolderUrl) {
   if (!INC.SMS_ENABLED) {
     Logger.log('[SMS OFF] Tier 1 %s — %s', caseNumber, sev.reasons.join(' | '));
@@ -749,21 +906,70 @@ function notifyTier1_(rowNum, id, p, sev, caseNumber, photoFolderUrl) {
 
 
 /** Opens a matching row on BreakdownsData so the breakdown team sees it too. */
-function spawnBreakdown_(incidentId, p) {
+/** First uploaded photo URL, for the File Attachment column. */
+function photoFolderUrlFor_(p) {
+  for (var k in p) {
+    if (k.indexOf('photo') === 0) {
+      var v = Array.isArray(p[k]) ? p[k][0] : p[k];
+      if (/^https?:/i.test(String(v || ''))) return String(v);
+    }
+  }
+  return '';
+}
+
+function spawnBreakdown_(caseNumber, p, sev) {
   try {
     var sheet = tab_(INC.BREAKDOWN_SHEET_ID, 'BreakdownsData');
-    sheet.appendRow([
-      '',
-      Utilities.formatDate(new Date(), 'GMT', 'yyyy-MM-dd'),
-      driverFullName_(p),
-      p.truck      || '',
-      p.trailer    || '',
-      p.state      || '',
-      p.city       || '',
-      'Incident',
-      'Spawned from incident ' + incidentId + ' — ' + (p.description || '')
-    ]);
-    return { ok: true, row: sheet.getLastRow() };
+
+    // Column positions matter here, and they are not ours to choose. Headers
+    // occupy rows 1-2 of BreakdownsData and data starts at row 3, which is why
+    // stages() reads getRange(3, 1, ...) — so data[0] is the first real row and
+    // these indices line up directly:
+    //
+    //   0 TimeStamp        4 Trailer #    8 Description
+    //   1 BreakDown Date   5 State        9 File Attachment
+    //   2 Driver Name      6 City        10 Assigned To
+    //   3 Truck #          7 Repair Type
+    //
+    // Stage 1 fires only when columns 0-6 AND column 10 are all non-empty:
+    //
+    //   isValidStage1 = row[0] && row[1] && row[2] && row[3] && row[4]
+    //                && row[5] && row[6] && row[10] && row[21] !== true
+    //
+    // Leave any of those blank and the row lands in the sheet and never
+    // notifies anyone — which is worse than not writing it, because it looks
+    // like it worked. Column 10 ("Assigned To") is the one most easily missed.
+    var tz   = INC.TIMEZONE;
+    var now  = new Date();
+    var why  = isStuck_(p) ? 'Stuck — ' + String(p.vehicleStuck).replace(/^Yes\s*[—-]\s*/i, '')
+             : no_(p.truckDrivable) ? 'Truck not drivable'
+             : yes_(p.towRequired)  ? 'Tow required'
+             : 'Equipment damage';
+
+    var row = [];
+    row[0]  = Utilities.formatDate(now, tz, 'M/d/yyyy H:mm:ss');   // Timestamp
+    row[1]  = Utilities.formatDate(now, tz, 'M/d/yyyy');           // Breakdown Date
+    row[2]  = driverFullName_(p);                                  // Driver Name
+    row[3]  = pick_(p, 'truck', 'truckNumber')     || 'Unknown';   // Truck
+    row[4]  = pick_(p, 'trailer', 'trailerNumber') || 'None';      // Trailer
+    row[5]  = pick_(p, 'state')                    || 'Unknown';   // State
+    row[6]  = pick_(p, 'city')                     || 'Unknown';   // City
+    row[7]  = why;                                                 // Repair Type
+    row[8]  = 'From incident ' + caseNumber + ' — ' +               // Description
+              (pick_(p, 'description') || '') +
+              (pick_(p, 'stuckWhere') ? ' — ' + p.stuckWhere : '');
+    row[9]  = photoFolderUrlFor_(p);                               // File Attachment
+    // "Assigned To (same as driver name)" — the driver's own name, matching how
+    // the breakdown form fills it. stages() also uses it to look up the driver's
+    // phone, so anything else here breaks the contact line in the text.
+    row[10] = driverFullName_(p);                                  // Assigned To — REQUIRED
+
+    // appendRow needs a dense array; a sparse one writes undefined cells.
+    for (var i = 0; i < 11; i++) if (row[i] === undefined) row[i] = '';
+
+    sheet.appendRow(row);
+    return { ok: true, row: sheet.getLastRow(), reason: why };
+
   } catch (err) {
     logError_('spawnBreakdown_', err);
     return { ok: false, error: String(err) };
@@ -1407,6 +1613,8 @@ function runSelfTest() {
   Logger.log('--- Flags ---');
   Logger.log('  DRY_RUN: %s   SMS_ENABLED: %s   BREAKDOWN_SPAWN: %s',
              INC.DRY_RUN, INC.SMS_ENABLED, INC.BREAKDOWN_SPAWN_ENABLED);
+  var sumTo = summaryRecipient_();
+  Logger.log('  Summary email: %s', sumTo ? sumTo : 'OFF — nothing is sent');
 
   Logger.log('');
   Logger.log('%s passed, %s failed', pass, fail);
