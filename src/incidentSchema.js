@@ -270,6 +270,10 @@ export const SECTIONS = [
         type: "checklistRow",
         label: "Damage to property Northern doesn't own?",
         answeredBy: "otherPartyInvolved",
+        // Hidden on a collision — otherVehicleRow already covers the other
+        // vehicle, and the wizard auto-sets otherPartyInvolved = "Yes" there, so
+        // without this guard both rows would ask for the same photos.
+        showIf: { key: "otherVehicleInvolved", notEquals: "Yes" },
         revealOn: "Yes",
         naReasons: ["Owner not present", "Not safe to approach", "Vehicle left the scene", "Other — I'll explain"],
         fields: [
