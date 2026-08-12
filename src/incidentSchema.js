@@ -268,17 +268,23 @@ export const SECTIONS = [
       {
         key: "otherPropertyRow",
         type: "checklistRow",
-        label: "Was property or another vehicle damaged?",
+        label: "Damage to property Northern doesn't own?",
+        answeredBy: "otherPartyInvolved",
+        // Hidden on a collision — otherVehicleRow already covers the other
+        // vehicle, and the wizard auto-sets otherPartyInvolved = "Yes" there, so
+        // without this guard both rows would ask for the same photos.
+        showIf: { key: "otherVehicleInvolved", notEquals: "Yes" },
         revealOn: "Yes",
         naReasons: ["Owner not present", "Not safe to approach", "Vehicle left the scene", "Other — I'll explain"],
         fields: [
-          { key: "photoOtherProperty", label: "Close-ups of the damage", type: "photo", multiple: true, hint: "All sides, not just the damaged area.", required: true },
+          { key: "photoOtherProperty", label: "Close-ups of the property damage", type: "photo", multiple: true, hint: "All sides of the damaged area, plus a wider shot showing where it sits.", required: true },
         ],
       },
       {
         key: "freightRow",
         type: "checklistRow",
         label: "Was freight damaged?",
+        answeredBy: "freightDamaged",
         revealOn: "Yes",
         fields: [
           { key: "photoLoadWide", label: "The entire load in the van or on the trailer", type: "photo", required: true },
@@ -290,6 +296,7 @@ export const SECTIONS = [
         type: "checklistRow",
         label: "Did the damage happen at a customer facility?",
         showIfTypes: ["damageTheirs"],
+        showIf: { key: "otherPartyInvolved", equals: "Yes" },
         revealOn: "Yes",
         naReasons: ["Facility closed, nobody there", "Nobody would give a name", "Other — I'll explain"],
         fields: [
