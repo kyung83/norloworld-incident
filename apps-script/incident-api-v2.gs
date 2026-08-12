@@ -424,6 +424,7 @@ function computeSeverity_(p) {
     reasons.push('Other party still on scene — settle it before police are involved');
   }
   if (yes_(p.rollover))              reasons.push('Rollover or jackknife');
+
   if (yes_(p.hazmatOrFuelSpill))     reasons.push('Fuel, oil, or hazmat spill');
 
   // Police attending a parking-lot scrape is not by itself a wakeup. Police
@@ -495,6 +496,15 @@ function computeSeverity_(p) {
   // Real, but it keeps until someone is awake and looking.
 
   if (citationLikely_(p))          reasons.push('Citation issued, no tow or injury');
+  // Safety is told, but this is breakdown's problem. There is nobody for safety
+  // to de-escalate with and nothing they can do at the roadside that breakdown
+  // is not already doing — they want it for the record and the analytics.
+  if (no_(p.truckDrivable))        reasons.push('Truck not drivable — breakdown dispatched');
+  if (isStuck_(p)) {
+    var where = String(p.vehicleStuck || '').replace(/^Yes\s*[—-]\s*/i, '');
+    reasons.push('Stuck' + (where && where.toLowerCase() !== 'yes' ? ' — ' + where : '') +
+                 ' — breakdown dispatched, safety notified');
+  }
   // Someone else's vehicle or property, and nobody there to talk to. Mark's
   // case: the driver documents it, safety picks it up in the morning, and the
   // damaged fence is exactly as damaged then as it is now. Real, not urgent —
@@ -504,7 +514,6 @@ function computeSeverity_(p) {
     reasons.push('Someone else\'s property, nobody there to speak to');
   }
   if (yes_(p.freightDamaged))      reasons.push('Freight damaged');
-  if (no_(p.truckDrivable))        reasons.push('Truck not drivable');
   if (yes_(p.towRequired))         reasons.push('Tow required');
   if (yes_(p.customerPropertyHit)) reasons.push('Damage at a customer facility');
   if ((p.otherNaCount || 0) > 2)   reasons.push('Multiple checklist items marked N/A');
@@ -545,7 +554,7 @@ function laneFor_(p, tier) {
   var needsBreakdown = damagedOurs ||
                        no_(p.truckDrivable) ||
                        yes_(p.towRequired) ||
-                       yes_(p.vehicleStuck);
+                       isStuck_(p);
 
   var needsSafety    = tier === 1 || yes_(p.otherPartyInvolved) ||
                        yes_(p.citationIssued) || yes_(p.anyoneInjured) ||
@@ -657,7 +666,7 @@ function createIncident(p) {
 
     var notify = { sent: false, reason: 'Tier ' + sev.tier + ' — queued, no SMS' };
     if (sev.tier === 1) {
-      notify = notifyTier1_(rowNum, id, p, sev);
+      notify = notifyTier1_(rowNum, id, p, sev, caseNumber, photoFolderUrl);
     }
 
     // A disabled truck is a breakdown job whatever the tier says.
@@ -695,25 +704,32 @@ function createIncident(p) {
  * REQUIRES the one-line change to blastForClaim_ so the group is an argument
  * rather than CFG.CLAIM_GROUP. See the note at the bottom of this file.
  */
-function notifyTier1_(rowNum, id, p, sev) {
+function notifyTier1_(rowNum, id, p, sev, caseNumber, photoFolderUrl) {
   if (!INC.SMS_ENABLED) {
-    Logger.log('[SMS OFF] Tier 1 %s — %s', id, sev.reasons.join(' | '));
+    Logger.log('[SMS OFF] Tier 1 %s — %s', caseNumber, sev.reasons.join(' | '));
     return { sent: false, reason: 'SMS not wired up yet' };
   }
 
   if (INC.DRY_RUN) {
     Logger.log('[DRY_RUN] Tier 1 %s would blast %s: %s',
-               id, INC.GROUP_SAFETY_NOW, sev.reasons.join(' | '));
+               caseNumber, INC.GROUP_SAFETY_NOW, sev.reasons.join(' | '));
     return { sent: false, reason: 'DRY_RUN' };
   }
 
+  // This text lands AFTER the driver has finished the form. He was already
+  // told to call from the scene, so somebody has probably spoken to him
+  // already — the point of this message is that the report now exists, with
+  // the case number, the photos, and the reasons the phone call could not
+  // carry. It also closes the loop: no text means no report, which is itself
+  // worth someone noticing.
   var body = [
-    'TIER 1 INCIDENT ' + id,
+    'INCIDENT ' + caseNumber + ' — report submitted',
     (driverFullName_(p) || 'Unknown driver') + '  ' + (p.driverPhone || ''),
     'Truck ' + (p.truck || '?') + '  Trailer ' + (p.trailer || '?'),
-    (p.locationName || '') + ' ' + (p.city || '') + ' ' + (p.state || ''),
-    sev.reasons.join('; ')
-  ].join('\n');
+    (pick_(p, 'siteName', 'streetAddress') || '') + ' ' + (p.city || '') + ' ' + (p.state || ''),
+    sev.reasons.join('; '),
+    photoFolderUrl ? 'Photos: ' + photoFolderUrl : ''
+  ].filter(function (l) { return String(l).trim(); }).join('\n');
 
   try {
     // blastForClaim_ mints the token, texts the roster, and opens the Claim Log
@@ -724,7 +740,7 @@ function notifyTier1_(rowNum, id, p, sev) {
     // A failed page must be loud. Fall back to email rather than fail silently.
     MailApp.sendEmail({
       to: 'breakdown@norloworld.com',
-      subject: 'TIER 1 INCIDENT ' + id + ' — SMS FAILED',
+      subject: 'INCIDENT ' + caseNumber + ' — report submitted, SMS FAILED',
       body: body + '\n\nSMS dispatch threw: ' + err
     });
     return { sent: false, reason: 'SMS failed, email fallback sent' };
@@ -1026,6 +1042,21 @@ function policeInvolved_(p) {
   return v.indexOf('yes') === 0 || v.indexOf('not here yet') > -1;
 }
 
+/**
+ * Stuck, wherever. The gate now records WHERE — shoulder, median, ditch, field,
+ * dirt road, customer property, somewhere else — because a wrecker for a median
+ * is a different job than a shoulder pull, and breakdown needs to know.
+ *
+ * The location does NOT decide the tier. Safety's reasoning: a stuck truck will
+ * be exactly as stuck tomorrow, so there is no window closing and nothing for a
+ * call to change. It is a text to safety and an immediate dispatch to breakdown.
+ */
+function isStuck_(p) {
+  var v = String(p.vehicleStuck || '').trim().toLowerCase();
+  if (!v || v === 'no') return false;
+  return v.indexOf('yes') === 0 || v === 'true' || v === '1';
+}
+
 function yes_(v) {
   if (v === true) return true;
   var s = String(v == null ? '' : v).trim().toLowerCase();
@@ -1276,7 +1307,7 @@ function runSelfTest() {
   check('Citation only, no tow, no injury', computeSeverity_(t).tier, 2);
 
   t = baseline(); t.truckDrivable = 'No';
-  check('Not drivable, nothing else', computeSeverity_(t).tier, 2);
+  check('Not drivable — breakdown\'s problem, not a call', computeSeverity_(t).tier, 2);
 
   t = baseline(); t.citationIssued = 'Yes'; t.towRequired = 'Yes';
   check('Citation WITH tow (DOT testing clock)', computeSeverity_(t).tier, 1);

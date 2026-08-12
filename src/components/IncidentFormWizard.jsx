@@ -848,17 +848,39 @@ export default function IncidentFormWizard() {
 // =============================================================================
 
 function GateScreen({ field, value, onPick, banner }) {
+  const bannerBlock = banner && (
+    <div className="mb-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+      <div>{banner}</div>
+      <div className="mt-1 font-semibold">
+        Driver Line: (989) 802-7135 — press option 6
+      </div>
+    </div>
+  );
+
+  // Free-text gate — e.g. "Where exactly?" after "stuck somewhere else". Without
+  // this, a non-select gate would fall through to the button rendering below.
+  if (field.type === "textarea" || field.type === "text") {
+    return (
+      <div>
+        {bannerBlock}
+        <h1 className="text-2xl font-medium leading-snug">{field.label}</h1>
+        {field.sublabel && <p className="mt-2 text-sm text-gray-500">{field.sublabel}</p>}
+        {field.hint && <p className="mt-2 text-xs text-gray-500">{field.hint}</p>}
+        <textarea
+          rows={field.type === "textarea" ? 3 : 1}
+          value={value || ""}
+          placeholder={field.placeholder}
+          onChange={(e) => onPick(e.target.value)}
+          className={`mt-4 ${INPUT}`}
+        />
+      </div>
+    );
+  }
+
   const opts = field.options || ["Yes", "No"];
   return (
     <div>
-      {banner && (
-        <div className="mb-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-          <div>{banner}</div>
-          <div className="mt-1 font-semibold">
-            Driver Line: (989) 802-7135 — press option 6
-          </div>
-        </div>
-      )}
+      {bannerBlock}
       <h1 className="text-2xl font-medium leading-snug">{field.label}</h1>
       {field.sublabel && <p className="mt-2 text-sm text-gray-500">{field.sublabel}</p>}
       <div className="mt-6 flex flex-col gap-3">
