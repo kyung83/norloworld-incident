@@ -52,7 +52,8 @@ const SLOT_LABEL = {
   photoOtherProperty: "other-property",
   photoOtherId: "other-id",
   photoOtherInsurance: "other-insurance",
-  photoOtherVehicle: "other-vehicle",
+  photoOtherVehicleDamage: "other-vehicle-damage",
+  photoOtherVehicleUndamaged: "other-vehicle-undamaged",
   photoTicket: "ticket",
   photoPoliceReport: "police-report",
   photoLoadWide: "load-wide",
@@ -109,7 +110,13 @@ function isRequired(f, values) {
 // a non-photo with a non-empty value.
 function fieldOk(f, values, uploads) {
   if (!isRequired(f, values)) return true;
-  if (f.type === "photo") return (uploads[f.key] || []).some((p) => p.status === "done" && p.url);
+  if (f.type === "photo") {
+    // A photo counts only once it has landed (done + Drive URL) — in flight or
+    // failed uploads don't. minPhotos raises the bar from one to N; when the row
+    // is N/A the field isn't required and this is skipped entirely.
+    const done = (uploads[f.key] || []).filter((p) => p.status === "done" && p.url);
+    return done.length >= (f.minPhotos || 1);
+  }
   return !!(values[f.key] && String(values[f.key]).trim());
 }
 
@@ -1091,6 +1098,13 @@ function PhotoField({ field, list, onCapture, onRetry, onRemove }) {
   const multiple = !!field.multiple;
   const canAdd = multiple || list.length === 0; // single fields hide the button once taken
 
+  // minPhotos progress: count only landed photos, so the driver sees what's left
+  // rather than discovering at the bottom of the screen that Next is still greyed.
+  const need = field.minPhotos || 0;
+  const have = list.filter((p) => p.status === "done" && p.url).length;
+  const short = need > 1 && have < need;
+  const counter = short ? ` (${have} of ${need})` : "";
+
   return (
     <div>
       <span className="mb-1 block text-sm font-medium">
@@ -1150,9 +1164,15 @@ function PhotoField({ field, list, onCapture, onRetry, onRemove }) {
         </div>
       )}
 
+      {short && (
+        <p className="mb-1 text-xs font-medium text-amber-700">
+          {need - have} more {need - have === 1 ? "photo" : "photos"} needed
+        </p>
+      )}
+
       {canAdd && (
         <label className="block cursor-pointer rounded border border-dashed border-gray-400 bg-gray-50 py-3 text-center text-sm text-gray-700">
-          {list.length === 0 ? "Take photo" : "Add another photo"}
+          {(list.length === 0 ? "Take photo" : "Add another photo") + counter}
           <input
             type="file"
             accept="image/*"
