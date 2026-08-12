@@ -101,7 +101,7 @@ export const SECTIONS = [
       // and skips it, so the presence gate below (showIf otherPartyInvolved ===
       // "Yes") is still reached and the other driver's presence is recorded. See
       // the auto-set effect in IncidentFormWizard.jsx.
-      { key: "otherPartyInvolved", label: "Was property damaged that Northern does not own?", sublabel: "A fence, pole, building, dock, lawn — or a vehicle in a parking lot or on a customer's property.", type: "select", options: ["Yes", "No"], required: true, showIf: { key: "otherVehicleInvolved", notEquals: "Yes" } },
+      { key: "otherPartyInvolved", label: "Damage to property Northern doesn't own?", sublabel: "A fence, pole, building, dock, lawn — or a vehicle in a parking lot or on a customer's property.", type: "select", options: ["Yes", "No"], required: true, showIf: { key: "otherVehicleInvolved", notEquals: "Yes" } },
       // "Nobody was ever there" is a real third case — an unattended parked car,
       // a fence, a closed dock. Different from a driver who left, and safety will
       // want to tell them apart when the claim comes in.
