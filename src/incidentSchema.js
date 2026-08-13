@@ -172,7 +172,11 @@ export const SECTIONS = [
     types: [],
     alsoShowIf: { key: "otherPartyInvolved", equals: "Yes" },
     fields: [
-      { key: "otherPartiesDetail", label: "Names and contact info", type: "textarea", requiredIf: { key: "otherPartyInvolved", equals: "Yes" } },
+      { key: "otherPartiesDetail",
+        label: "Names and contact info",
+        hint: "Whoever you spoke to — name, phone, and their insurance if you got it.",
+        type: "textarea",
+        requiredIf: { key: "otherPartyPresent", equals: "Yes, they are here" } },
     ],
   },
   {
