@@ -497,12 +497,19 @@ function computeSeverity_(p) {
     if (!pres || pres === 'unknown') missing.push('otherPartyPresent');
   }
 
+  // A blank or bare "Unknown" gate escalates — but to a TEXT, not a call.
+  //
+  // Tier 1 is now a narrow, deliberate list: injury, another vehicle on a public
+  // road, property with the owner present, rollover, a leak, the DOT testing
+  // clock. Every one is a situation where safety phoning in the first five
+  // minutes changes the outcome. An unanswered question is not that. It means
+  // the record is incomplete, which safety follows up on in the morning.
+  //
+  // Almost nothing can reach here now anyway — the Unknown option has been
+  // removed from injury, both vehicle questions, rollover, police, fluid,
+  // drivable and tow. What is left is a genuinely abandoned submission.
   if (missing.length) {
-    return {
-      tier: 1,
-      reasons: ['Escalated — unanswered or uncertain gate: ' + missing.join(', ')],
-      lane: laneFor_(p, 1)
-    };
+    reasons.push('Incomplete — unanswered: ' + missing.join(', '));
   }
 
   // ---- TIER 2 ---------------------------------------------------------------
@@ -1565,13 +1572,13 @@ function runSelfTest() {
   check('Someone hurt', computeSeverity_(t).tier, 1);
 
   t = baseline(); delete t.truckDrivable;
-  check('Gate left blank (fail upward)', computeSeverity_(t).tier, 1);
+  check('Gate left blank — a text, not a call', computeSeverity_(t).tier, 2);
 
   t = baseline(); t.truckDrivable = 'Unknown';
-  check('Gate answered Unknown (fail upward)', computeSeverity_(t).tier, 1);
+  check('Bare Unknown — a text, not a call', computeSeverity_(t).tier, 2);
 
   t = baseline(); t.otherPartyInvolved = 'Yes';   // presence never answered
-  check('Other party involved, presence blank', computeSeverity_(t).tier, 1);
+  check('Other party involved, presence blank', computeSeverity_(t).tier, 2);
 
   t = baseline(); t.hazmatOrFuelSpill = 'Yes';
   check('Fluid leaking', computeSeverity_(t).tier, 1);
