@@ -129,7 +129,7 @@ export const SECTIONS = [
       { key: "rollover", label: "Did the truck roll over or jackknife?", type: "select", options: ["Yes", "No"], required: true },
       { key: "hazmatOrFuelSpill", label: "Is fuel, oil, or any other fluid leaking?", type: "select", options: ["Yes", "No"], required: true },
       { key: "truckDrivable", label: "Is the truck safe to drive right now?", type: "select", options: ["Yes", "No"], required: true },
-      { key: "towRequired", label: "Does anything need to be towed?", type: "select", options: ["Yes", "No"], required: true },
+      { key: "towRequired", label: "Does your truck or trailer need a tow?", sublabel: "Northern equipment only.", type: "select", options: ["Yes", "No"], required: true },
       // Location does not change the tier — every stuck truck is a text and an
       // immediate breakdown dispatch (it will be exactly as stuck tomorrow). It
       // is asked because a median wrecker is a different job than a shoulder pull,
