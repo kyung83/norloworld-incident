@@ -102,6 +102,23 @@ export const SECTIONS = [
       // "Yes") is still reached and the other driver's presence is recorded. See
       // the auto-set effect in IncidentFormWizard.jsx.
       { key: "otherPartyInvolved", label: "Damage to property Northern doesn't own?", sublabel: "A fence, pole, building, dock, lawn — or a vehicle in a parking lot or on a customer's property.", type: "select", options: ["Yes", "No"], required: true, showIf: { key: "otherVehicleInvolved", notEquals: "Yes" } },
+      // Split the property answer into vehicle vs. structure: a parked car needs
+      // the same damaged-area + 3-undamaged-sides photos as a road collision,
+      // while a fence or pole does not. Drives which checklist row reveals.
+      { key: "propertyWasVehicle",
+        label: "Was it a vehicle?",
+        sublabel: "A parked car, another truck — rather than a fence, pole, or building.",
+        type: "select",
+        options: ["Yes", "No"],
+        required: true,
+        // Only asked for non-collision property. On a public-road collision the
+        // wizard auto-sets otherPartyInvolved = "Yes", so without the second
+        // condition this would surface a redundant "Was it a vehicle?" screen on
+        // every collision. Both must hold (array = AND).
+        showIf: [
+          { key: "otherPartyInvolved", equals: "Yes" },
+          { key: "otherVehicleInvolved", notEquals: "Yes" },
+        ] },
       // "Nobody was ever there" is a real third case — an unattended parked car,
       // a fence, a closed dock. Different from a driver who left, and safety will
       // want to tell them apart when the claim comes in.
@@ -232,6 +249,13 @@ export const SECTIONS = [
         type: "checklistRow",
         label: "Was another vehicle involved?",
         answeredBy: "otherVehicleInvolved",
+        // Also reveal when the property hit in a lot was a vehicle (a parked
+        // car) — the same damaged-area + 3-undamaged-sides photos apply, even
+        // though otherVehicleInvolved is "No" (it wasn't a public-road collision).
+        alsoShowIf: { key: "propertyWasVehicle", equals: "Yes" },
+        // Shown instead of the gate pill when the row reveals via alsoShowIf, so
+        // it doesn't read "Was another vehicle involved? No" above the photos.
+        alsoShowLabel: "Vehicle damaged in a lot",
         revealOn: "Yes",
         // A fled or unreachable vehicle can't be photographed from three sides.
         // This escape is why the minPhotos requirement below never traps a
@@ -272,8 +296,14 @@ export const SECTIONS = [
         answeredBy: "otherPartyInvolved",
         // Hidden on a collision — otherVehicleRow already covers the other
         // vehicle, and the wizard auto-sets otherPartyInvolved = "Yes" there, so
-        // without this guard both rows would ask for the same photos.
-        showIf: { key: "otherVehicleInvolved", notEquals: "Yes" },
+        // without this guard both rows would ask for the same photos. Also hidden
+        // when the property itself was a vehicle (a parked car): otherVehicleRow
+        // now covers those photos via alsoShowIf, and revealing both would be a
+        // double photo request. Both conditions must hold (array = AND).
+        showIf: [
+          { key: "otherVehicleInvolved", notEquals: "Yes" },
+          { key: "propertyWasVehicle", notEquals: "Yes" },
+        ],
         revealOn: "Yes",
         naReasons: ["Owner not present", "Not safe to approach", "Vehicle left the scene", "Other — I'll explain"],
         fields: [

@@ -120,10 +120,33 @@ function fieldOk(f, values, uploads) {
   return !!(values[f.key] && String(values[f.key]).trim());
 }
 
+// One condition holds when its key matches `equals`, or (for a notEquals guard)
+// when it does NOT match `notEquals`. Mirrors the gate-level evaluator so rows
+// and gates read showIf the same way.
+function condHolds(cond, values) {
+  const actual = values[cond.key];
+  return "notEquals" in cond ? actual !== cond.notEquals : actual === cond.equals;
+}
+
 function rowVisible(row, values, selectedKeys) {
-  if (row.showIf && values[row.showIf.key] !== row.showIf.equals) return false;
+  if (row.showIf) {
+    // showIf is one condition or an array of them; an array is AND (all hold).
+    const conds = Array.isArray(row.showIf) ? row.showIf : [row.showIf];
+    if (!conds.every((c) => condHolds(c, values))) return false;
+  }
   if (row.showIfTypes && !row.showIfTypes.some((t) => selectedKeys.includes(t))) return false;
   return true;
+}
+
+// A checklist row can also reveal on an OR gate, independent of its answeredBy
+// gate — e.g. otherVehicleRow reveals when a parked car was hit
+// (propertyWasVehicle = "Yes") even though otherVehicleInvolved is "No". One
+// { key, equals } condition or an array of them; any match reveals. Mirrors
+// section-level alsoShowIf.
+function rowAlsoShown(row, values) {
+  if (!row.alsoShowIf) return false;
+  const conds = Array.isArray(row.alsoShowIf) ? row.alsoShowIf : [row.alsoShowIf];
+  return conds.some((c) => values[c.key] === c.equals);
 }
 
 // Effective answer for a row: a locked row reads its gate; an asked row reads
@@ -158,8 +181,9 @@ function rowComplete(row, values, uploads) {
   const ans = rowAnswer(row, values);
 
   if (row.answeredBy) {
-    // Locked to a gate. Nothing to do unless the gate revealed the row.
-    if (ans !== reveal) return true;
+    // Locked to a gate. Nothing to do unless the gate — or an alsoShowIf OR
+    // condition — revealed the row.
+    if (ans !== reveal && !rowAlsoShown(row, values)) return true;
     if (fieldsOk(row, values, uploads)) return true;
     if (row.naReasons && naComplete(row, values)) return true; // couldn't-provide escape
     return false;
@@ -189,15 +213,28 @@ function checklistSummary(section, values, selectedKeys) {
       const reveal = r.revealOn || "Yes";
       const ans = rowAnswer(r, values);
       const reason = values[r.key + "_naReason"];
+      if (r.answeredBy) {
+        // Locked row: revealed by its gate OR by an alsoShowIf condition. When
+        // revealed via alsoShowIf its gate answer may be "No" (e.g. a parked car:
+        // otherVehicleInvolved = "No"), so check reveal before treating "No" as a
+        // real "not applicable" — otherwise a collected-photo row is logged as No.
+        const revealed = ans === reveal || rowAlsoShown(r, values);
+        if (revealed) {
+          if (r.naReasons && reason) {
+            // satisfied via the couldn't-provide escape
+            na.push(r.label + " — " + reason);
+            if (/^Other/i.test(reason)) otherNaCount++;
+          }
+        } else if (ans === "No") {
+          no.push(r.label);
+        }
+        return;
+      }
       if (ans === "No") {
         no.push(r.label);
       } else if (ans === "N/A" && reason) {
         const note = values[r.key + "_naNote"];
         na.push(r.label + " — " + reason + (note ? " (" + note + ")" : ""));
-        if (/^Other/i.test(reason)) otherNaCount++;
-      } else if (r.answeredBy && ans === reveal && r.naReasons && reason) {
-        // locked + revealed, satisfied via the couldn't-provide escape
-        na.push(r.label + " — " + reason);
         if (/^Other/i.test(reason)) otherNaCount++;
       }
     });
@@ -512,11 +549,12 @@ export default function IncidentFormWizard() {
     const gateFields = gatesSection ? gatesSection.fields : [];
 
     // Gate-level showIf: skip a conditional gate until its condition holds.
+    // One condition or an array of them (an array is AND — all must hold), read
+    // the same way as row-level showIf via condHolds.
     const gateVisible = (f) => {
       if (!f.showIf) return true;
-      const actual = values[f.showIf.key];
-      if ("notEquals" in f.showIf) return actual !== f.showIf.notEquals;
-      return actual === f.showIf.equals;
+      const conds = Array.isArray(f.showIf) ? f.showIf : [f.showIf];
+      return conds.every((c) => condHolds(c, values));
     };
 
     // Push a gate and, when its answer calls for it, the "stop and call" step
@@ -1068,16 +1106,29 @@ function ChecklistRow({ row, values, set, uploads, onCapture, onRetry, onRemove,
   // --- Locked: read the gate, show the answer ------------------------------
   if (row.answeredBy) {
     const ans = values[row.answeredBy];
-    const revealed = ans === reveal;
+    const gateRevealed = ans === reveal;
+    const alsoRevealed = rowAlsoShown(row, values);
+    const revealed = gateRevealed || alsoRevealed;
+    // The gate pill ("Yes — from your earlier answer") only makes sense when the
+    // gate itself revealed the row. When the row reveals via alsoShowIf instead,
+    // the gate's value contradicts the fields below (a parked car has
+    // otherVehicleInvolved = "No"), so show a neutral label — or nothing.
+    const showGatePill = gateRevealed || !alsoRevealed;
     return (
       <div className={`rounded-lg border ${border} p-3`}>
         <p className="text-sm font-semibold">{row.label}</p>
-        <div className="mt-1 flex items-center gap-2 text-sm">
-          <span className="rounded bg-gray-100 px-2 py-0.5 font-medium">{ans || "—"} — from your earlier answer</span>
-          <button type="button" onClick={() => goToGate(row.answeredBy)} className="text-blue-700 underline">
-            change
-          </button>
-        </div>
+        {showGatePill ? (
+          <div className="mt-1 flex items-center gap-2 text-sm">
+            <span className="rounded bg-gray-100 px-2 py-0.5 font-medium">{ans || "—"} — from your earlier answer</span>
+            <button type="button" onClick={() => goToGate(row.answeredBy)} className="text-blue-700 underline">
+              change
+            </button>
+          </div>
+        ) : row.alsoShowLabel ? (
+          <div className="mt-1 text-sm">
+            <span className="rounded bg-gray-100 px-2 py-0.5 font-medium">{row.alsoShowLabel}</span>
+          </div>
+        ) : null}
         {revealed && renderFields(row.fields)}
         {revealed && row.naReasons && !fieldsOk(row, values, uploads) && (
           <div className="mt-3">
