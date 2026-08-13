@@ -185,7 +185,7 @@ export const SECTIONS = [
     types: ["damageOurs", "animalStrike"],
     fields: [
       { key: "ourDamageWhat", label: "What is damaged?", type: "textarea", placeholder: "Tractor, trailer, tires, mirror, reefer unit…", required: true },
-      { key: "photoOurEquipment", label: "Damage to our equipment — at least 2 photos", hint: "Different angles. Include the unit number in at least one shot.", type: "photo", multiple: true, required: true, minPhotos: 2 },
+      { key: "photoOurEquipment", label: "Damage to our equipment — at least 2 photos", hint: "Two different angles of the damage. One shot rarely shows how bad it actually is.", type: "photo", multiple: true, required: true, minPhotos: 2 },
     ],
   },
   {
@@ -224,8 +224,8 @@ export const SECTIONS = [
         type: "alwaysRequired",
         label: "Pictures of the scene",
         fields: [
-          { key: "photoScene", label: "Wide shot of the incident scene", type: "photo", multiple: true, hint: "Stand back far enough to show everything involved and the road.", required: true },
-          { key: "photoOurEquipment", label: "Damage to our equipment — at least 2 photos", hint: "Different angles. Include the unit number in at least one shot.", type: "photo", multiple: true, required: true, minPhotos: 2 },
+          { key: "photoScene", label: "Wide shot of the incident scene — at least 2 photos", type: "photo", multiple: true, hint: "Two angles. Stand back far enough to show everything involved and the road.", required: true, minPhotos: 2 },
+          { key: "photoOurEquipment", label: "Damage to our equipment — at least 2 photos", hint: "Two different angles of the damage. One shot rarely shows how bad it actually is.", type: "photo", multiple: true, required: true, minPhotos: 2 },
         ],
       },
       // Locked: the gate already answered this. (The ticket row moved to the
