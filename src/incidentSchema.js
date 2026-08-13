@@ -266,7 +266,7 @@ export const SECTIONS = [
         // hit-and-run driver — mark it N/A and the photo requirement clears.
         naReasons: ["Vehicle left the scene", "Not safe to approach", "Other — I'll explain"],
         fields: [
-          { key: "photoOtherVehicleDamage", label: "The damaged area on their vehicle", hint: "Close enough to see the damage clearly. More than one angle is better.", type: "photo", multiple: true, required: true },
+          { key: "photoOtherVehicleDamage", label: "THEIR vehicle — the damaged area, at least 2 photos", hint: "Two different angles of the damage. One shot rarely shows how bad it actually is.", type: "photo", multiple: true, required: true, minPhotos: 2 },
           { key: "photoOtherVehicleUndamaged", label: "THEIR vehicle — the sides we did not damage, at least 3 photos", hint: "The other party's vehicle, not ours. Front, back, and the opposite side. This is what stops a claim for damage that was already there.", type: "photo", multiple: true, required: true, minPhotos: 3 },
         ],
       },
