@@ -267,7 +267,7 @@ export const SECTIONS = [
         naReasons: ["Vehicle left the scene", "Not safe to approach", "Other — I'll explain"],
         fields: [
           { key: "photoOtherVehicleDamage", label: "The damaged area on their vehicle", hint: "Close enough to see the damage clearly. More than one angle is better.", type: "photo", multiple: true, required: true },
-          { key: "photoOtherVehicleUndamaged", label: "The sides we did NOT damage — at least 3 photos", hint: "Front, back, and the other side. This is what stops a claim for damage that was already there.", type: "photo", multiple: true, required: true, minPhotos: 3 },
+          { key: "photoOtherVehicleUndamaged", label: "THEIR vehicle — the sides we did not damage, at least 3 photos", hint: "The other party's vehicle, not ours. Front, back, and the opposite side. This is what stops a claim for damage that was already there.", type: "photo", multiple: true, required: true, minPhotos: 3 },
         ],
       },
       // Asked: full three buttons.
