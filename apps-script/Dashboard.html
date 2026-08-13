@@ -704,10 +704,10 @@
     if(!CURRENT) return;
     var cn=CURRENT.values['Case Number'];
     var to=window.prompt(
-      'Email the full record for case '+cn+' to:\n\n'+
-      'Leave as-is for safety, or type another address \u2014 an insurer, an '+
-      'attorney, the driver\u2019s manager.',
-      'safety@norloworld.com');
+      'Send a PDF of case '+cn+' to:\n\n'+
+      'An insurer, an attorney, the driver\u2019s manager \u2014 whoever needs a copy. '+
+      'Closing the case is what sends it to safety.',
+      '');
     if(to===null) return;
     var note=window.prompt('Optional message to include in the email body:','');
     if(note===null) return;
