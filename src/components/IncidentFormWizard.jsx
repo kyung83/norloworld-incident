@@ -13,6 +13,11 @@ const DRAFT_KEY = "norlo-incident-draft-v1";
 // certainly a different incident, or one the driver abandoned. Restoring it
 // would put a previous incident's answers on today's report.
 const DRAFT_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6 hours
+// The breakdown app drivers already use, reached from the ASR Mobile dashboard.
+// Same tab on purpose: two single-page apps juggling tabs inside the Eleos
+// webview is worse than losing the confirmation screen, and the case number is
+// shown above the button so the driver has his reference before he leaves.
+const BREAKDOWN_URL = "https://kyung83.github.io/norloworld-breakdown/";
 const FIRST_GATE = "anyoneInjured";
 // Gates shown before the identity section. Only the first injury gate leads;
 // every other gate comes after identity.
@@ -348,6 +353,15 @@ export default function IncidentFormWizard() {
   // opens at step one. pendingDraft holds the offer until the driver chooses.
   const [pendingDraft, setPendingDraft] = useState(null);
   const [confirmStartOver, setConfirmStartOver] = useState(false);
+  // The breakdown block is offered on EVERY submission, because breakdown owns
+  // maintenance as well as roadside — a cracked mirror and a truck in a ditch
+  // end up with the same department, and damage nobody logs is damage that gets
+  // deferred. Only the urgency differs.
+  //
+  // It dismisses rather than blocks. Plenty of drivers phone dispatch before
+  // they ever open this form, and a screen someone cannot get past is a screen
+  // they abandon — the report is already saved by the time this shows.
+  const [breakdownDismissed, setBreakdownDismissed] = useState(false);
 
   const valuesRef = useRef(values);
   valuesRef.current = values;
@@ -690,12 +704,47 @@ export default function IncidentFormWizard() {
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Submission failed");
 
+      // Two different things happen to a damaged truck, and the driver needs a
+      // different next step for each.
+      //
+      // Cannot move — a wrecker or a mechanic has to come out, and breakdown
+      // has not been told. That is the roadside form, and it is urgent.
+      //
+      // Drives fine — nobody is coming out. It is a shop job, and the only
+      // thing that matters is maintenance hearing about it before the driver
+      // forgets. Sending him to the roadside form for a cracked mirror is noise
+      // at exactly the moment he has least patience for it.
+      //
+      // These are computed from the driver's own answers rather than from
+      // data.lane: laneFor_ returns BREAKDOWN for ANY damage to our equipment,
+      // so the lane cannot tell a bent mirror from a truck in a ditch.
+      //
+      // This must happen BEFORE setValues below, which replaces the whole
+      // values object — by the time the confirmation renders, towRequired and
+      // truckDrivable are gone.
+      const roadside =
+        values.towRequired === "Yes" ||
+        values.truckDrivable === "No" ||
+        String(values.vehicleStuck || "").startsWith("Yes —") ||
+        types.includes("tow");
+
+      const shopRepair =
+        !roadside &&
+        (types.includes("damageOurs") ||
+          String(values.ourDamageWhat || "").trim() !== "");
+
       // Set the flag BEFORE clearing/updating state: the draft-save effect
       // re-fires on setValues, and this stops it writing a fresh draft.
       submittedRef.current = true;
       localStorage.removeItem(DRAFT_KEY);
       setStatus("done");
-      setValues({ _caseNumber: data.caseNumber, _tier: data.tier, _duplicate: data.duplicate });
+      setValues({
+        _caseNumber: data.caseNumber,
+        _tier: data.tier,
+        _duplicate: data.duplicate,
+        _roadside: roadside,
+        _shopRepair: shopRepair,
+      });
     } catch (err) {
       setStatus("error");
       setError(String(err.message || err));
@@ -723,6 +772,56 @@ export default function IncidentFormWizard() {
             ? "Safety has this now and will call you. Stay where you are if it is safe to do so. You do not need to text it."
             : "Safety will pick this up. No need to text or call unless something changes."}
         </p>
+
+        {!breakdownDismissed && (
+          values._roadside ? (
+            <div className="mt-6 rounded-lg border-2 border-amber-500 bg-amber-50 p-4 text-left">
+              <h2 className="text-lg font-semibold text-amber-900">Your truck needs breakdown</h2>
+              <p className="mt-2 text-sm text-amber-900">
+                Safety has your report. Breakdown is a separate team and they have not been
+                told yet — they are the ones who send the wrecker or the mechanic.
+              </p>
+              <a
+                href={BREAKDOWN_URL}
+                className="mt-4 block rounded bg-amber-600 py-4 text-center text-base font-semibold text-white"
+              >
+                Open the breakdown form
+              </a>
+              <button
+                type="button"
+                onClick={() => setBreakdownDismissed(true)}
+                className="mt-3 block w-full text-center text-xs text-amber-800 underline"
+              >
+                I already called breakdown
+              </button>
+            </div>
+          ) : (
+            <div className="mt-6 rounded-lg border border-gray-300 bg-gray-50 p-4 text-left">
+              <h2 className="text-base font-semibold text-gray-900">
+                Does the truck need a tow or a repair?
+              </h2>
+              <p className="mt-2 text-sm text-gray-700">
+                {values._shopRepair
+                  ? "You reported damage to our equipment. Even though it drives fine, submit a breakdown so maintenance knows about it and can schedule the repair."
+                  : "If anything on the truck or trailer needs the shop — even if it drives fine — submit a breakdown. Breakdown handles repairs as well as roadside."}
+              </p>
+              <a
+                href={BREAKDOWN_URL}
+                className="mt-4 block rounded border border-gray-400 bg-white py-3 text-center text-base font-semibold text-gray-900"
+              >
+                Open the breakdown form
+              </a>
+              <button
+                type="button"
+                onClick={() => setBreakdownDismissed(true)}
+                className="mt-3 block w-full text-center text-xs text-gray-600 underline"
+              >
+                Nothing needs fixing
+              </button>
+            </div>
+          )
+        )}
+
         <CallBar />
       </div>
     );
