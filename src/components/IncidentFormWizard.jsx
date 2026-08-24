@@ -1321,11 +1321,18 @@ function PhotoField({ field, list, onCapture, onRetry, onRemove }) {
                   retry
                 </button>
               )}
-              {p.status === "done" && (
+              {/* Remove works on a FAILED photo too, not just a landed one.
+                  A photo stuck on retry used to be permanent: the driver could
+                  not clear it, and a required field counts only landed photos,
+                  so he could take a good replacement and still be blocked by a
+                  broken one he had no way to get rid of. */}
+              {p.status !== "uploading" && (
                 <button
                   type="button"
                   onClick={() => onRemove(field.key, i)}
-                  className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-gray-700 text-xs leading-none text-white"
+                  className={`absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full text-xs leading-none text-white ${
+                    p.status === "failed" ? "bg-red-600" : "bg-gray-700"
+                  }`}
                   aria-label="Remove this photo"
                 >
                   ×
