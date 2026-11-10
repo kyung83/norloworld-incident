@@ -977,9 +977,7 @@ export default function IncidentFormWizard() {
       {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
       {savedAt && <p className="mt-3 text-xs text-gray-500">Saved — safe to close and come back</p>}
 
-      {/* The call-now step already puts the number front and center; a second
-          call button below it would just be noise. */}
-      {current?.kind !== "callNow" && <CallBar />}
+      {/* No call button on the form steps. Safety asked for it to go in November 2026: a Tier 1 gate already stops the driver and tells him to call, so a standing red CALL button beside a half-finished report mostly invites him to abandon the report and phone it in instead. The Tier 1 screen and the confirmation screen still offer it. */}
     </div>
   );
 }
