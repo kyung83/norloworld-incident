@@ -17,10 +17,11 @@ const DRAFT_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6 hours
 // Same tab on purpose: two single-page apps juggling tabs inside the Eleos
 // webview is worse than losing the confirmation screen, and the case number is
 // shown above the button so the driver has his reference before he leaves.
-// The hash is load-bearing: the breakdown app is hash-routed, and the bare
-// domain lands on a page that is not the form. Confirmed by tapping it, not
-// by reading the bundle — the minified routes look path-based and are not.
-const BREAKDOWN_URL = "https://kyung83.github.io/norloworld-breakdown/#/norloworld-breakdown/";
+// The new breakdown app, the same one the ASR Mobile breakdown button opens.
+// Maintenance moved breakdown here in November 2026; the old GitHub Pages form
+// at kyung83.github.io/norloworld-breakdown is superseded. This one is path
+// routed, so the trailing hash the old URL needed is gone and must not return.
+const BREAKDOWN_URL = "https://norlow-repair-dashboard.norlo-repair-system.workers.dev/report-breakdown";
 const FIRST_GATE = "anyoneInjured";
 // Gates shown before the identity section. Only the first injury gate leads;
 // every other gate comes after identity.
