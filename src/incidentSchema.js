@@ -49,11 +49,16 @@ const US_STATES = [
   "VA","WA","WV","WI","WY","DC","ON","QC",
 ];
 
-// Home terminals — from the Division column of the recruiting tab plus the WEX
-// card tab. Confirm before shipping; a few may be closed.
+// Home terminals, confirmed with Ben on 13 November 2026.
+//
+// Byron Center is the Grand Rapids terminal, listed as GRAND RAPIDS because
+// that is the name drivers use for it. Sussex is the Milwaukee one, kept as
+// SUSSEX to match the master data sheet. Muskegon drivers report to Grand
+// Rapids, so it is not a separate entry. Counce, TN is not a home terminal.
+// Fond du Lac has no current drivers; the only one based there has left.
 const TERMINALS = [
   "CLARE",
-  "BYRON CENTER",
+  "GRAND RAPIDS",
   "TAYLOR",
   "LUDINGTON",
   "CADILLAC",
