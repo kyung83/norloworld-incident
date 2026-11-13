@@ -219,13 +219,18 @@ export const SECTIONS = [
     rows: [
       // Always required. No three-button row, no N/A: a wide shot and pictures
       // of our own truck are possible at every incident, on any phone.
+      //
+      // The second field is deliberately not worded as damage. This row fires on
+      // damageTheirs runs too, where our equipment was never touched, and a driver
+      // cannot photograph damage that does not exist. Photos of an undamaged truck
+      // earn their place anyway: they are what rebuts a claim that we caused it.
       {
         key: "scenePhotos",
         type: "alwaysRequired",
         label: "Pictures of the scene",
         fields: [
           { key: "photoScene", label: "Wide shot of the incident scene — at least 2 photos", type: "photo", multiple: true, hint: "Two angles. Stand back far enough to show everything involved and the road.", required: true, minPhotos: 2 },
-          { key: "photoOurEquipment", label: "Damage to our equipment — at least 2 photos", hint: "Two different angles of the damage. One shot rarely shows how bad it actually is.", type: "photo", multiple: true, required: true, minPhotos: 2 },
+          { key: "photoOurEquipment", label: "Our truck and trailer — at least 2 photos", hint: "Two angles of the damage if ours was damaged. If our equipment is fine, photograph it anyway. That is what proves it.", type: "photo", multiple: true, required: true, minPhotos: 2 },
         ],
       },
       // Locked: the gate already answered this. (The ticket row moved to the
@@ -376,7 +381,7 @@ export const SECTIONS = [
   {
     id: "citationFinal",
     title: "Before you send this",
-    subtitle: "By now the officer has usually decided.",
+    subtitle: "Asked last on purpose. If an officer was involved, by now they have usually decided.",
     types: null,
     fields: [
       { key: "citationIssued", label: "Were you or anyone else issued a ticket?", type: "select", options: ["Yes", "Officer said one is coming", "No", "Unknown"], required: true },
