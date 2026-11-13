@@ -773,7 +773,7 @@ export default function IncidentFormWizard() {
         )}
         <p className="mt-4 text-sm text-gray-600">
           {values._tier === 1
-            ? "Safety has this now and will call you. Stay where you are if it is safe to do so. You do not need to text it."
+            ? "Safety has this now and will call you. If you are still at the scene, stay put as long as it is safe. You do not need to text it."
             : "Safety will pick this up. No need to text or call unless something changes."}
         </p>
 
