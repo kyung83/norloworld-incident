@@ -55,7 +55,7 @@ const US_STATES = [
 // that is the name drivers use for it. Sussex is the Milwaukee one, kept as
 // SUSSEX to match the master data sheet. Muskegon drivers report to Grand
 // Rapids, so it is not a separate entry. Counce, TN is not a home terminal.
-// Fond du Lac has no current drivers; the only one based there has left.
+// Fond du Lac was removed on 13 Nov 2026; its only driver had left.
 const TERMINALS = [
   "CLARE",
   "GRAND RAPIDS",
@@ -70,7 +70,6 @@ const TERMINALS = [
   "ALPENA",
   "FORT WAYNE, IN",
   "SUSSEX, WI",
-  "FOND DU LAC, WI",
 ];
 
 // Section: { id, title, subtitle?, types, showIf?, fields? | rows? }
