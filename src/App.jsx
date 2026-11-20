@@ -17,9 +17,12 @@ function Shell() {
         <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
             <div className="flex items-center gap-6">
+              {/* Hotlinked from the company site. The old /static/mainimages/ path */}
+              {/* 404'd after a redesign and left an empty square on the banner. To */}
+              {/* stop that recurring, commit the PNG to src/assets and import it. */}
               <img
                 className="h-12 w-auto"
-                src="https://www.norloworld.com/static/mainimages/northern-logistics-logo.png"
+                src="https://www.norloworld.com/static/img/norlo-world-logo-new.png"
                 alt="Northern Logistics"
               />
               <div className="hidden sm:flex sm:space-x-8">
