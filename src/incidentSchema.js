@@ -220,6 +220,29 @@ export const SECTIONS = [
     subtitle:
       "Make sure the environment is safe before taking any pictures. Never be argumentative with the other parties — it is what it is regardless of fault, and we work it out on the back end.",
     types: ["accident", "damageOurs", "damageTheirs", "tow", "animalStrike"],
+    // The gates can establish the need for photos on their own.
+    //
+    // This section used to be gated on incident type alone, and a driver who
+    // checked only "Injury" or only "Other" skipped the whole checklist — no
+    // scene photos, no shot of our equipment, no damage description — even
+    // with rollover, a fluid leak, a tow and "not safe to drive" all answered
+    // Yes on the way in. A Tier 1 rollover with an injury could be filed with
+    // nothing attached to it. The tow section already appeared on its own gate,
+    // which made the hole easy to miss in testing.
+    //
+    // anyoneInjured is deliberately NOT in this list. These gates all say
+    // something happened to the TRUCK, which is what makes scene and equipment
+    // photos worth having. An injury on its own does not: a driver who strains
+    // his back lifting a pallet at a dock would otherwise be made to take four
+    // photos of an uninvolved tractor while he is hurt, and the injury section
+    // already collects what that report needs.
+    alsoShowIf: [
+      { key: "rollover", equals: "Yes" },
+      { key: "hazmatOrFuelSpill", equals: "Yes" },
+      { key: "towRequired", equals: "Yes" },
+      { key: "truckDrivable", equals: "No" },
+      { key: "vehicleStuck", startsWith: "Yes" },
+    ],
     rows: [
       // Always required. No three-button row, no N/A: a wide shot and pictures
       // of our own truck are possible at every incident, on any phone.
