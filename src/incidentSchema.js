@@ -329,6 +329,14 @@ export const SECTIONS = [
         label: "Was freight damaged?",
         answeredBy: "freightDamaged",
         revealOn: "Yes",
+        // This row had no escape, and it was the only revealed locked row
+        // without one. A driver on the shoulder of a divided highway cannot
+        // always open the doors to photograph the load, and a sealed trailer
+        // cannot be opened at all without breaking the seal. With no N/A the
+        // checklist never completed, so the only way to submit was to go back
+        // and answer "No" — the form pushed him to falsify the one answer the
+        // cargo claim is built on.
+        naReasons: ["Not safe to open the doors", "Load is sealed", "Doors blocked or jammed", "Other — I'll explain"],
         fields: [
           { key: "photoLoadWide", label: "The entire load in the van or on the trailer", type: "photo", required: true },
           { key: "photoLoadDamage", label: "Close-ups of the damaged freight", type: "photo", multiple: true, required: true },
