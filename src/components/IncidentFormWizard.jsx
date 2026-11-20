@@ -120,10 +120,19 @@ function sectionVisible(s, values, selectedKeys) {
   // A gate can independently establish the need for a section, regardless of
   // which incident type the driver checked — e.g. anyoneInjured drives the
   // injury section even on an Accident-only report. alsoShowIf is one
-  // { key, equals } condition or an array of them; any match shows the section.
+  // condition or an array of them; any match shows the section.
+  //
+  // A condition is { key, equals } for an exact answer, or { key, startsWith }
+  // for a gate whose answers share a prefix — vehicleStuck has seven separate
+  // "Yes — ..." options and listing them all would rot the day someone adds an
+  // eighth.
   if (s.alsoShowIf) {
     const conds = Array.isArray(s.alsoShowIf) ? s.alsoShowIf : [s.alsoShowIf];
-    if (conds.some((c) => values[c.key] === c.equals)) return true;
+    const met = (c) =>
+      c.startsWith
+        ? String(values[c.key] || "").startsWith(c.startsWith)
+        : values[c.key] === c.equals;
+    if (conds.some(met)) return true;
   }
   return false;
 }
