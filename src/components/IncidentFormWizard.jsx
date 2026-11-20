@@ -69,10 +69,29 @@ const SLOT_LABEL = {
   photoLoadDamage: "load-damage",
 };
 
-// Replace one photo in a field's upload list, growing the list if needed.
-function setPhoto_(uploads, key, index, item) {
-  const list = [...(uploads[key] || [])];
-  list[index] = item;
+// Every photo carries its own id from the moment it is captured.
+//
+// This used to address photos by their position in the field's array, and an
+// in-flight upload closed over the index it had when it started. Removing an
+// earlier photo spliced the array and shifted everything after it down, so
+// when the upload landed it wrote back to a position that now belonged to
+// something else — or past the end, appending a duplicate. The entry left
+// behind sat on "uploading" forever: no × (hidden while uploading), no retry
+// (not "failed"), and anyUploading stayed true, which disables Next AND
+// Submit. The driver could not file the report at all, and the only way out
+// was to know to reload the page and resume the draft.
+//
+// An id is stable across splices, so a late upload now finds its own entry or
+// finds nothing at all — and finding nothing is correct: the driver deleted it.
+let photoSeq = 0;
+function newPhotoId_(key) {
+  photoSeq += 1;
+  return `${key}:${Date.now().toString(36)}:${photoSeq}`;
+}
+
+// Patch one photo by id. A photo that is no longer in the list is a no-op.
+function setPhotoById_(uploads, key, pid, patch) {
+  const list = (uploads[key] || []).map((p) => (p.pid === pid ? { ...p, ...patch } : p));
   return { ...uploads, [key]: list };
 }
 
@@ -408,7 +427,9 @@ export default function IncidentFormWizard() {
     ALL_PHOTO_KEYS.forEach((k) => {
       const val = (d.values || {})[k];
       const urls = (Array.isArray(val) ? val : [val]).filter((u) => /^https?:/.test(String(u || "")));
-      if (urls.length) up[k] = urls.map((url) => ({ status: "done", url })); // no dataUrl on resume — thumbnail shows "Uploaded"
+      // Resumed photos get ids too, so remove and retry work on them exactly
+      // as they do on freshly captured ones.
+      if (urls.length) up[k] = urls.map((url) => ({ pid: newPhotoId_(k), status: "done", url })); // no dataUrl on resume — thumbnail shows "Uploaded"
     });
     setUploads(up);
     if (d.types) setTypes(d.types);
@@ -494,8 +515,8 @@ export default function IncidentFormWizard() {
 
   // One upload, keeping the reliability machinery: already downscaled, run
   // through the concurrency limiter with a 60s timeout + two backed-off retries.
-  const uploadOne = useCallback(async (key, index, dataUrl, attempt = 0) => {
-    setUploads((u) => setPhoto_(u, key, index, { status: "uploading", dataUrl }));
+  const uploadOne = useCallback(async (key, pid, dataUrl, attempt = 0) => {
+    setUploads((u) => setPhotoById_(u, key, pid, { status: "uploading", dataUrl }));
     try {
       const ctx = {
         driverName: valuesRef.current.driverName,
@@ -503,16 +524,19 @@ export default function IncidentFormWizard() {
         sessionId: sessionIdRef.current,
       };
       // Index the slot so the 2nd+ photo of a field lands under its own name in
-      // Drive rather than an identical one.
+      // Drive rather than an identical one. Read at send time from the live
+      // list, so a photo deleted before this one went up doesn't leave a gap in
+      // the numbering.
+      const index = (uploadsRef.current[key] || []).findIndex((p) => p.pid === pid);
       const slot = index > 0 ? `${key}-${index + 1}` : key;
       const url = await uploadLimiter(() => uploadPhoto(slot, dataUrl, ctx));
-      setUploads((u) => setPhoto_(u, key, index, { status: "done", url, dataUrl }));
+      setUploads((u) => setPhotoById_(u, key, pid, { status: "done", url, dataUrl }));
     } catch {
       if (attempt < 2) {
         await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
-        return uploadOne(key, index, dataUrl, attempt + 1);
+        return uploadOne(key, pid, dataUrl, attempt + 1);
       }
-      setUploads((u) => setPhoto_(u, key, index, { status: "failed", dataUrl }));
+      setUploads((u) => setPhotoById_(u, key, pid, { status: "failed", dataUrl }));
     }
   }, []);
 
@@ -521,35 +545,30 @@ export default function IncidentFormWizard() {
     async (key, file) => {
       setPendingDraft(null);
       const dataUrl = await downscaleImage(file);
-      let index;
-      setUploads((u) => {
-        const list = [...(u[key] || [])];
-        index = list.length;
-        list.push({ status: "uploading", dataUrl });
-        return { ...u, [key]: list };
-      });
-      uploadOne(key, index, dataUrl);
+      // The id is minted here, outside the updater. It used to read the index
+      // back out of setUploads, which only runs synchronously when React has
+      // no work pending — with an upload already in flight it does not, and
+      // the index came back undefined.
+      const pid = newPhotoId_(key);
+      setUploads((u) => ({ ...u, [key]: [...(u[key] || []), { pid, status: "uploading", dataUrl }] }));
+      uploadOne(key, pid, dataUrl);
     },
     [uploadOne]
   );
 
   // Retry reuses the image already in memory — never a re-shoot.
   const retryPhoto = useCallback(
-    (key, index) => {
-      const item = (uploadsRef.current[key] || [])[index];
-      if (item && item.dataUrl) uploadOne(key, index, item.dataUrl);
+    (key, pid) => {
+      const item = (uploadsRef.current[key] || []).find((p) => p.pid === pid);
+      if (item && item.dataUrl) uploadOne(key, pid, item.dataUrl);
     },
     [uploadOne]
   );
 
   // Drop a mistaken photo. The Drive file stays — this form doesn't delete
   // evidence on a tap — but it no longer counts toward the field or the record.
-  const removePhoto = useCallback((key, index) => {
-    setUploads((u) => {
-      const list = [...(u[key] || [])];
-      list.splice(index, 1);
-      return { ...u, [key]: list };
-    });
+  const removePhoto = useCallback((key, pid) => {
+    setUploads((u) => ({ ...u, [key]: (u[key] || []).filter((p) => p.pid !== pid) }));
   }, []);
 
   const allPhotos = Object.values(uploads).flat();
@@ -1290,7 +1309,7 @@ function PhotoField({ field, list, onCapture, onRetry, onRemove }) {
       {list.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
           {list.map((p, i) => (
-            <div key={i} className="relative">
+            <div key={p.pid || i} className="relative">
               {p.dataUrl ? (
                 <img
                   src={p.dataUrl}
@@ -1317,7 +1336,7 @@ function PhotoField({ field, list, onCapture, onRetry, onRemove }) {
               {p.status === "failed" && (
                 <button
                   type="button"
-                  onClick={() => onRetry(field.key, i)}
+                  onClick={() => onRetry(field.key, p.pid)}
                   className="absolute inset-x-0 bottom-0 bg-red-600 text-[10px] font-medium text-white"
                 >
                   retry
@@ -1331,7 +1350,7 @@ function PhotoField({ field, list, onCapture, onRetry, onRemove }) {
               {p.status !== "uploading" && (
                 <button
                   type="button"
-                  onClick={() => onRemove(field.key, i)}
+                  onClick={() => onRemove(field.key, p.pid)}
                   className={`absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full text-xs leading-none text-white ${
                     p.status === "failed" ? "bg-red-600" : "bg-gray-700"
                   }`}
