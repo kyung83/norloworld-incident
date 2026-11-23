@@ -96,11 +96,7 @@ function setPhotoById_(uploads, key, pid, patch) {
 }
 
 const CHECKLIST_SECTION = SECTIONS.find((s) => s.id === "checklist");
-const ALL_PHOTO_KEYS = CHECKLIST_SECTION
-  ? CHECKLIST_SECTION.rows.flatMap((r) =>
-      (r.fields || []).filter((f) => f.type === "photo").map((f) => f.key)
-    )
-  : [];
+const ALL_PHOTO_KEYS = [...new Set(SECTIONS.flatMap((s) => [...(s.fields || []), ...(s.rows || []).flatMap((r) => r.fields || [])]).filter((f) => f && f.type === "photo").map((f) => f.key))];
 
 const INPUT =
   "w-full rounded border border-gray-300 bg-white px-3 py-3 text-base text-gray-900 placeholder-gray-500";
@@ -758,11 +754,11 @@ export default function IncidentFormWizard() {
         values.towRequired === "Yes" ||
         values.truckDrivable === "No" ||
         String(values.vehicleStuck || "").startsWith("Yes —") ||
-        types.includes("tow");
+        selectedKeys.includes("tow");
 
       const shopRepair =
         !roadside &&
-        (types.includes("damageOurs") ||
+        (selectedKeys.includes("damageOurs") ||
           String(values.ourDamageWhat || "").trim() !== "");
 
       // Set the flag BEFORE clearing/updating state: the draft-save effect
