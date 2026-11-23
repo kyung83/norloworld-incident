@@ -1,72 +1,72 @@
-# Incident Report — Apps Script (source of truth)
+# Apps Script — operations notes (NOT the source of truth)
 
-The Google Apps Script for this project lives here, version-controlled with the
-app. There's no local build for `.gs`/`.html` — **edit here, then paste into the
-Apps Script editor** and deploy. The project is **container-bound to the "2026
-Incident Report Updated" workbook** (Extensions → Apps Script from that
-workbook); all files below live in that *same* Apps Script project.
-
-## Files
-
-| File | Role |
-|---|---|
-| **`incident-api-v2.gs`** | The deployed **Web App** the driver form calls. `doGet`/`doPost` on `?route=`; severity tiering, running annual case numbers, `savePhoto` → Drive, writes one row per incident to `IncidentsData`. Its `/exec` URL is in `src/config.js` (`ENDPOINT`). |
-| **`incident-workbook-tools.gs`** | Office-side tools **and the shared library**. Owns the config constants (`DATA_TAB`, `UPDATES_TAB`, `TZ`, `SAFETY_EMAIL`), the `🛡 Safety Incident` menu (`onOpen`), the append-only `IncidentUpdates` log, close-and-email, and the shared helpers (`colIndex_`, `setCell_`, `rowObject_`, `rowForCase_`, `updatesForCase_`, `currentUser_`, `escapeHtml_`, `buildIncidentPrintHTML_`, …). |
-| **`IncidentDashboard.gs`** | Server side for `Dashboard.html`: `openIncidentDashboard`, `getCaseList`, `getIncident`, `saveIncident`, plus the record print/email (`makeIncidentPdf`, `emailIncidentPdf`). **Reuses** the helpers/constants from `incident-workbook-tools.gs` — it does not redefine them, so the two files are interdependent (don't remove a shared helper without checking here). |
-| **`Dashboard.html`** | The dashboard modal UI, opened by `openIncidentDashboard`. |
-| **`incident-workbook-tools-SETUP.md`** | Install + daily-use + test steps for the office tools. |
-| **`Code.gs`** | ⚠️ **DEPRECATED** original prototype (flat "Submissions" tab). Not deployed, kept for history. |
-
-> **Interdependency:** `incident-workbook-tools.gs` + `IncidentDashboard.gs` +
-> `Dashboard.html` are one set — the dashboard reuses the tools' helpers and
-> menu. Deleting or renaming a shared helper breaks the dashboard.
+> ## ⚠️ The code is not in this repo. Do not paste anything from here into Apps Script.
 >
-> **Superseded:** `dashboard-print-email.gs` (in Downloads) defined
-> `getIncidentPrintHtml`/`makeIncidentPdf`/`emailIncidentPdf` — now folded into
-> `IncidentDashboard.gs`. It is intentionally **not** in this repo; adding it
-> would collide (duplicate function definitions).
+> The live server-side code lives **only** in Google Apps Script. This folder
+> used to hold copies of it, and those copies drifted badly — the mirror of the
+> backend was **1,648 lines against 2,170 live**, missing the breakdown/SMS
+> work, the notification-ordering fix, and the lane/shop-repair changes.
+> An earlier version of this file told the reader to "edit here and paste over"
+> the live file, which would have silently rolled all of that back.
+>
+> The copies were deleted on 2026-11-23. They remain in this repo's git history
+> if you ever need to read what they said, but they are **not** a base to work
+> from. Use the Apps Script editor, and use **Project History** inside it for
+> past versions.
 
-## Backend (`incident-api-v2.gs`) — deploy / redeploy
+## Where the code actually lives
 
-1. Paste into the incident Apps Script project (bound to the workbook).
-2. Run **`runSelfTest`** — expect all PASS (the four photo headers use an **em
-   dash `—`**, not a hyphen).
-3. **Deploy → Manage deployments → ✏️ edit existing → New version** — keeps the
-   **same `/exec` URL**. Never create a new deployment.
+Two Apps Script projects, both reachable from <https://script.google.com/home>:
 
-Writes to workbook `1eet9u2Bb9m_8Aj-TFymxAwouK2z-O1AmAwt5KajVu0w`, tab
-`IncidentsData`. Photos → Drive **Incident Photos** (folder named by the
-wizard's `sessionId`, renamed to the case number at submit).
+| Project | Contains | Role |
+|---|---|---|
+| **Norlo Incident API** | `incident-api.gs`, `incident-workbook-tools.gs`, `IncidentDashboard.gs`, `Dashboard.html` | The web app the driver form posts to, plus the office-side sheet tools and dashboard. Also reachable via **Extensions → Apps Script** from the incident workbook. |
+| **Norlo Incident SMS** | `norlo-twilio-incident.gs` | Twilio SMS notification and inbound-reply handling. Separate project, separate deployment, separate script properties. |
 
-## Office tools + dashboard — install
+The frontend in this repo (`src/`) is the only part that is genuinely
+version-controlled here. Its `/exec` endpoint is in `src/config.js`.
 
-Add `incident-workbook-tools.gs`, `IncidentDashboard.gs`, and `Dashboard.html`
-as files in the *same* project (Files → +; the `.html` as an **HTML** file named
-`Dashboard`). Save, reload the workbook, then **🛡 Safety Incident → Set up tabs
-(run once)**. The menu's **Open** item launches the dashboard. Setup + daily use
-in `incident-workbook-tools-SETUP.md`.
+## Two things that will bite you
 
-## Status — this is the deployed backend
+**1. Triggers and `doPost` do not run the same code.**
+Time-driven and sheet triggers execute the latest **saved** code. `doPost` —
+every driver submission — executes the latest **deployed version**. Saving
+without deploying leaves the web app on old code while triggers run the new
+code, and the two can disagree for months without anyone noticing. After any
+edit: **Deploy → Manage deployments → ✏️ edit the existing deployment → New
+version**. Never create a second deployment; that changes the `/exec` URL and
+the driver form stops reaching the backend.
 
-`incident-api-v2.gs` here is the **canonical, deployed** version (`runSelfTest`
-passing). It folds in everything:
-- **FIX 1b** — case number kept as text (`setNumberFormat('@')`), so leading
-  zeros survive. (FIX 1a — column A → Format → Plain text — is a one-time sheet
-  step, already done.)
-- **Photo-folder fix** — upload folder named `PENDING <sessionId>`, renamed to
-  `<CaseNumber> - Driver` at submit; human-readable photo file names.
-- **Split driver name** — `driverFullName_` writes "Last, First" to the Driver
-  column, falling back to the old `driverName` for pre-split rows.
-- **Duplicate guard** — `existingCaseForSession_` scans the last 50 rows'
-  Payload for the wizard's `sessionId`; on a repeat, `createIncident` returns
-  `{ ok:true, duplicate:true, caseNumber }` (the original) instead of writing a
-  second row or paging safety again. This is the server half of the frontend's
-  `submittedRef` / `_duplicate`-banner fix.
+**2. The dashboard files are one interdependent set.**
+`IncidentDashboard.gs` and `Dashboard.html` reuse helpers and config constants
+defined in `incident-workbook-tools.gs` (`colIndex_`, `setCell_`, `rowObject_`,
+`rowForCase_`, `currentUser_`, `escapeHtml_`, `buildIncidentPrintHTML_`,
+`DATA_TAB`, `UPDATES_TAB`, `TZ`, `SAFETY_EMAIL`, …) rather than redefining
+them. Removing or renaming a shared helper breaks the dashboard without
+breaking the thing you were editing.
 
-> ⚠️ This file is deployed in Apps Script as **`incident-api.gs`** — the `-v2`
-> is just the repo filename. **Edit here and paste over that file.** This is the
-> single source of truth; the `Downloads/` copy is superseded.
+## Deploy checklist
 
-> These copies are the source of truth. The parallel "Accident reporting system"
-> chat edits the loose copies in `Downloads/`; keep this folder synced from
-> Downloads until that chat is retired, so the repo doesn't go stale.
+1. Edit in the Apps Script editor. Save.
+2. Run **`runSelfTest`** — expect all PASS. (The four photo headers use an
+   **em dash `—`**, not a hyphen; a hyphen fails the test.)
+3. **Deploy → Manage deployments → edit existing → New version.**
+4. Confirm the new version is the one serving: the deployment dialog should
+   show the version number you just created, not an older one.
+
+## Other files here
+
+- **`incident-workbook-tools-SETUP.md`** — historical. It documents the
+  one-time install of the office tools, which is **already done**; its
+  paste-the-file step no longer applies. Its *Daily use* section (log an
+  update, close & email) is still accurate and worth reading.
+
+## Data locations
+
+- Workbook: **Incident Report Updated** — tabs `IncidentsData`, `Claim Log`,
+  `SMS Log`, `IncidentUpdates`, `Queue`, `Roster`.
+- Photos: Drive folder **Incident Photos**, one subfolder per incident, named
+  `PENDING <sessionId>` during upload and renamed to the case number at submit.
+- Case numbers: `MMDDYY` + a per-year sequence, derived from `IncidentsData` at
+  submit time. There is **no stored counter** — clearing the sheet resets the
+  sequence.
