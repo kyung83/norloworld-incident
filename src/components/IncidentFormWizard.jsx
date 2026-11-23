@@ -712,8 +712,41 @@ export default function IncidentFormWizard() {
       ? checklistSummary(CHECKLIST_SECTION, values, selectedKeys, uploads)
       : { notApplicable: "", answeredNo: "", otherNaCount: 0 };
 
+    // Drop free-text details the driver has since retracted. Changing
+    // anyoneInjured from Yes to No still sent the injury narrative, so safety
+    // read an injury account on a no-injury report. Worse, stuckWhere kept a
+    // location for a truck no longer stuck there, and breakdown dispatches
+    // equipment off that field.
+    //
+    // Only free text goes. Every gate is a select, so gates, row answers,
+    // photo URLs, dates and times are untouched and the tier cannot change.
+    // ourDamageWhat is free text but the backend routes shop repair off it,
+    // so it is kept as well. Audit finding 24.
+    const KEEP_ALWAYS = ["description", "ourDamageWhat"];
+    const isDetail = (f) =>
+      f && (f.type === "textarea" || f.type === "text") && !KEEP_ALWAYS.includes(f.key);
+    const fieldShown = (f) => !f.showIf || values[f.showIf.key] === f.showIf.equals;
+    const retracted = new Set();
+    SECTIONS.forEach((s) => {
+      const sShown = sectionVisible(s, values, selectedKeys);
+      (s.fields || []).forEach((f) => {
+        if (isDetail(f) && (!sShown || !fieldShown(f))) retracted.add(f.key);
+      });
+      (s.rows || []).forEach((r) => {
+        const rShown =
+          sShown && (r.type === "alwaysRequired" || rowVisible(r, values, selectedKeys));
+        (r.fields || []).forEach((f) => {
+          if (isDetail(f) && (!rShown || !fieldShown(f))) retracted.add(f.key);
+        });
+      });
+    });
+    const kept = { ...values };
+    retracted.forEach((k) => {
+      delete kept[k];
+    });
+
     const payload = {
-      ...values,
+      ...kept,
       incidentTypes: types,
       sessionId,
       submittedAt: new Date().toISOString(),
