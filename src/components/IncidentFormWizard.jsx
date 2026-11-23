@@ -481,6 +481,21 @@ export default function IncidentFormWizard() {
     }
   }, [values.otherVehicleInvolved]);
 
+  // propertyWasVehicle only applies while another party is involved and no
+  // other vehicle was - its showIf is an AND of exactly those two. Answer Yes,
+  // then set otherPartyInvolved to No, and the value used to survive: the
+  // field was hidden by then, so there was no UI left to take it back, while
+  // otherVehicleRow's alsoShowIf went on demanding five photos of a vehicle
+  // the driver had just said does not exist. The only escape was a false N/A
+  // reason, which then landed in the sheet. Audit finding 25.
+  useEffect(() => {
+    const applies =
+      values.otherPartyInvolved === "Yes" && values.otherVehicleInvolved !== "Yes";
+    if (!applies) {
+      setValues((p) => (p.propertyWasVehicle ? { ...p, propertyWasVehicle: "" } : p));
+    }
+  }, [values.otherPartyInvolved, values.otherVehicleInvolved]);
+
   // Keep a combined driverName ("Last, First") in sync with the split name
   // fields, so the photo Drive folder, the resume banner, and the backend's
   // Driver column keep working with no backend change. Guarded so it never
