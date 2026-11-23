@@ -235,7 +235,7 @@ function checklistComplete(section, values, uploads, selectedKeys) {
 }
 
 // Build the two sheet summaries + the count of vague "Other" N/A reasons.
-function checklistSummary(section, values, selectedKeys) {
+function checklistSummary(section, values, selectedKeys, uploads) {
   const na = [];
   const no = [];
   let otherNaCount = 0;
@@ -253,7 +253,7 @@ function checklistSummary(section, values, selectedKeys) {
         // real "not applicable" — otherwise a collected-photo row is logged as No.
         const revealed = ans === reveal || rowAlsoShown(r, values);
         if (revealed) {
-          if (r.naReasons && reason) {
+          if (r.naReasons && reason && !fieldsOk(r, values, uploads)) {
             // satisfied via the couldn't-provide escape
             na.push(r.label + " — " + reason);
             if (/^Other/i.test(reason)) otherNaCount++;
@@ -709,7 +709,7 @@ export default function IncidentFormWizard() {
     setError("");
 
     const summary = CHECKLIST_SECTION
-      ? checklistSummary(CHECKLIST_SECTION, values, selectedKeys)
+      ? checklistSummary(CHECKLIST_SECTION, values, selectedKeys, uploads)
       : { notApplicable: "", answeredNo: "", otherNaCount: 0 };
 
     const payload = {
