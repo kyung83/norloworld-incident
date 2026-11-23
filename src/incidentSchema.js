@@ -189,7 +189,7 @@ export const SECTIONS = [
     types: ["damageOurs", "animalStrike"],
     fields: [
       { key: "ourDamageWhat", label: "What is damaged?", type: "textarea", placeholder: "Tractor, trailer, tires, mirror, reefer unit…", required: true },
-      { key: "photoOurEquipment", label: "Damage to our equipment — at least 2 photos", hint: "Two different angles of the damage. One shot rarely shows how bad it actually is.", type: "photo", multiple: true, required: true, minPhotos: 2 },
+      { key: "photoOurEquipmentDamage", label: "Damage to our equipment — at least 2 photos", hint: "Two different angles of the damage. One shot rarely shows how bad it actually is.", type: "photo", multiple: true, required: true, minPhotos: 2 },
     ],
   },
   {
